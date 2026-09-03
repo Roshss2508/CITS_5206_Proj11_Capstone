@@ -1,3 +1,4 @@
+import Decimal from "decimal.js";
 import { z } from "zod";
 import { COST_CATEGORIES } from "@/src/modules/types";
 
@@ -55,7 +56,10 @@ export const capacitySchema = z.object({
     historicYear2: optionalMoney,
     historicYear3: optionalMoney,
     justification: z.string().trim().min(3).max(1000),
-  })).min(1).max(20),
+  }).refine(
+    (row) => new Decimal(row.maximumCapacity).times(row.forecastUtilisationPct).greaterThan(0),
+    { message: "Forecast billable units must be greater than zero. Increase maximum capacity or forecast utilisation.", path: ["forecastUtilisationPct"] },
+  )).min(1).max(20),
 });
 
 export const proposedRatesSchema = z.object({
@@ -69,7 +73,10 @@ export const proposedRatesSchema = z.object({
     apfrSharePct: decimalString,
     commercialSharePct: decimalString,
     justification: z.string().trim().min(3).max(1000),
-  })).min(1).max(20),
+  }).refine(
+    (row) => new Decimal(row.uwaSharePct).plus(row.apfrSharePct).plus(row.commercialSharePct).equals(100),
+    { message: "UWA, APFR and Commercial user shares must total exactly 100%.", path: ["commercialSharePct"] },
+  )).min(1).max(20),
 });
 
 export const statusSchema = z.object({
