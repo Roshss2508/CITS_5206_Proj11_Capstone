@@ -8,6 +8,7 @@ import {
   Send, ShieldCheck, Trash2,
 } from "lucide-react";
 import { apiRequest, useDemoRole } from "@/src/client/api";
+import { describeError } from "@/src/client/errorMessages";
 import type {
   CalculationResult, Capability, CapacityPlan, CostLine, CostingCaseAggregate,
   IncomeLine, ProposedRate,
@@ -66,7 +67,7 @@ export function CaseWizard({ caseId }: { caseId: string }) {
   useEffect(() => {
     apiRequest<{ case: CostingCaseAggregate }>(`/api/v1/cases/${caseId}`, role)
       .then(({ case: data }) => { hydrate(data); loadedRef.current = true; setError(""); })
-      .catch((caught) => setError(caught instanceof Error ? caught.message : "Unable to load this case."))
+      .catch((caught) => setError(describeError(caught, "Unable to load this case.")))
       .finally(() => setLoading(false));
   // The aggregate hydrator intentionally owns all related form state.
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -94,7 +95,7 @@ export function CaseWizard({ caseId }: { caseId: string }) {
       setError("");
       return true;
     } catch (caught) {
-      const message = caught instanceof Error ? caught.message : "Unable to save this step.";
+      const message = describeError(caught, "Unable to save this step.");
       setSaveState(silent ? "Complete required fields to save" : "Save failed");
       if (!silent) setError(message);
       return false;
@@ -110,7 +111,14 @@ export function CaseWizard({ caseId }: { caseId: string }) {
   }, [dirtyVersion, role, step]);
 
   const goTo = async (next: number) => {
-    if (next > step && !(await saveStep(step))) return;
+    if (next > step) {
+      if (!(await saveStep(step))) return;
+    } else if (dirtyVersion > 0) {
+      // Persist edits on the step being left before the step changes, so the debounced
+      // autosave (keyed on `step`) cannot get rerouted to save the destination step instead
+      // and silently drop the pending changes on this one.
+      await saveStep(step, true);
+    }
     setStep(Math.max(1, Math.min(5, next)));
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
@@ -135,7 +143,7 @@ export function CaseWizard({ caseId }: { caseId: string }) {
       setAggregate(refreshed.case);
       setSaveState("Calculation snapshot saved");
       setError("");
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to calculate rates."); }
+    } catch (caught) { setError(describeError(caught, "Unable to calculate rates.")); }
     finally { setWorking(false); }
   };
 
@@ -144,7 +152,7 @@ export function CaseWizard({ caseId }: { caseId: string }) {
       setWorking(true);
       const response = await request<{ case: CostingCaseAggregate }>(`/api/v1/cases/${caseId}/status`, { status, comment: status === "APPROVED" ? "Approved after review of the immutable calculation snapshot." : status === "DRAFT" ? "Returned for changes after review." : "Submitted for client review." }, "POST");
       hydrate(response.case);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to change case status."); }
+    } catch (caught) { setError(describeError(caught, "Unable to change case status.")); }
     finally { setWorking(false); }
   };
 
