@@ -116,8 +116,9 @@ export function CaseWizard({ caseId }: { caseId: string }) {
     } else if (dirtyVersion > 0) {
       // Persist edits on the step being left before the step changes, so the debounced
       // autosave (keyed on `step`) cannot get rerouted to save the destination step instead
-      // and silently drop the pending changes on this one.
-      await saveStep(step, true);
+      // and silently drop the pending changes on this one. Block the navigation on failure
+      // too, otherwise the same rerouting happens via this call's own step change.
+      if (!(await saveStep(step, true))) return;
     }
     setStep(Math.max(1, Math.min(5, next)));
     window.scrollTo({ top: 0, behavior: "smooth" });
