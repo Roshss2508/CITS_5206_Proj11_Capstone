@@ -4,9 +4,11 @@ import { useSearchParams } from "next/navigation";
 import { AlertTriangle, ArrowLeft, ShieldCheck } from "lucide-react";
 import { ProductSidebar } from "@/components/ProductSidebar";
 
-// Mirrors docs/business-rules.md. Keep the two in sync — this page must never
-// present a rule the client has not confirmed, and the doc is the source of truth.
-const confirmedRules = [
+// Rule content mirrors docs/business-rules.md; keep the two in sync. Wording here
+// must stay aligned with docs/business-rule-analysis.md — these rules are implemented
+// and tested, not necessarily client-confirmed, and the analysis doc is the source of
+// truth for confirmation status.
+const currentRules = [
   { id: "RATE-UWA-001", rule: "(cost − UWA support − non-UWA support) ÷ forecast units, floored at zero.", evidence: "Golden test" },
   { id: "RATE-APFR-001", rule: "((cost − non-UWA support) ÷ forecast units) × 1.35, floored at zero before the multiplier.", evidence: "Golden test" },
   { id: "RATE-COM-001", rule: "(cost ÷ forecast units) × 1.35; UWA support cannot reduce this rate.", evidence: "Golden + independence test" },
@@ -48,26 +50,26 @@ export function BusinessRules() {
         <section className="formula-banner">
           <span className="formula-icon"><ShieldCheck size={19} /></span>
           <div><strong>RIC Formula V1 is active</strong><small>35% external indirect-cost recovery · GST exclusive · Decimal-safe calculations</small></div>
-          <span className="pill green">VERIFIED</span>
+          <span className="pill green">TESTED</span>
         </section>
 
         <section className="wizard-panel">
           <div className="panel-intro">
-            <p className="page-kicker">CONFIRMED</p>
+            <p className="page-kicker">CURRENT IMPLEMENTATION</p>
             <h2>Rules applied to every calculation</h2>
-            <p>These rules are implemented, tested and used for every costing case on RIC Formula V1. They are confirmed and safe to rely on when explaining a case&apos;s numbers.</p>
+            <p>These rules are currently implemented and tested, and are used for every costing case on RIC Formula V1. Some implementation details still require client confirmation — see docs/business-rule-analysis.md for the areas still open.</p>
           </div>
           <table className="rules-table">
             <thead><tr><th>Rule ID</th><th>Rule</th><th>Automated evidence</th></tr></thead>
             <tbody>
-              {confirmedRules.map((item) => <tr key={item.id}><td>{item.id}</td><td>{item.rule}</td><td>{item.evidence}</td></tr>)}
+              {currentRules.map((item) => <tr key={item.id}><td>{item.id}</td><td>{item.rule}</td><td>{item.evidence}</td></tr>)}
             </tbody>
           </table>
           <p className="rules-precision-note">SQLite stores financial values as decimal strings and <code>decimal.js</code> performs every authoritative calculation. Intermediate results are not rounded — currency is rounded half-up to two decimal places and quantities to six decimal places for presentation only.</p>
 
           <div className="pending-rules">
             <h3><AlertTriangle size={16} /> Awaiting client confirmation</h3>
-            <p>The items below are open questions raised with the client, not implemented behaviour. They are not final and not client-approved — do not treat them as active business rules. Any resolution will ship as a new formula version; existing calculation snapshots are never changed retroactively.</p>
+            <p>The items below are open questions raised with the client. Some related behaviour is already implemented on a provisional basis, but none of it is final or client-approved — do not treat it as a confirmed business rule. Any resolution will ship as a new formula version; existing calculation snapshots are never changed retroactively.</p>
             <ul>{pendingRules.map((item) => <li key={item}>{item}</li>)}</ul>
           </div>
         </section>
