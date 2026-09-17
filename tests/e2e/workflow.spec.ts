@@ -235,23 +235,8 @@ test.describe("Issue #6 – core costing workflow", () => {
         page.getByRole("heading", {
           name: /Review the evidence package/i,
         }),
-      ).toBeVisible();await page.reload();
-
-      await expect(
-        page.getByRole("heading", {
-          name: caseName,
-          level: 1,
-        }),
       ).toBeVisible();
-
-      await expect(
-        page.getByRole("heading", {
-          name: /Review the evidence package/i,
-        }),
-      ).toBeVisible();
- 
-      await expect(page.getByRole("heading", { name: /Review the evidence package/i })).toBeVisible();
- 
+  
       for (const label of SUMMARY_LABELS) {
         await expect(summaryValue(page, label), `${label} mismatch between Step 4 and Step 5`)
           .toHaveText(step4Summary[label]);
