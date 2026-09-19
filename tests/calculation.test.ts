@@ -21,9 +21,18 @@ function fixture(): CostingCaseAggregate {
 }
 
 describe("RIC_FORMULA_V1", () => {
-  it("reproduces the client golden calculation exactly", () => {
+  it("reproduces the client golden calculation and recovery scenario exactly", () => {
+    // BR-07 to BR-11: confirmed client worked example, 35% uplift and GST-exclusive rates.
     const result = calculateCase(fixture(), "2026-08-15T00:00:00.000Z");
-    expect(result.capabilities[0].sustainableRates).toEqual({ UWA: "100.00", APFR: "162.00", COMMERCIAL: "202.50" });
+    const capability = result.capabilities[0];
+
+    expect(capability.sustainableRates).toEqual({ UWA: "100.00", APFR: "162.00", COMMERCIAL: "202.50" });
+    expect(capability.sustainableRates.COMMERCIAL).not.toBe("222.75");
+    expect(capability.overheadComponents).toEqual({ APFR: "42.00", COMMERCIAL: "52.50" });
+    expect(result.grossRevenue).toBe("130875.00");
+    expect(result.universityOverhead).toBe("18375.00");
+    expect(result.netPlatformRecovery).toBe("112500.00");
+    expect(result.operatingBalance).toBe("12500.00");
     expect(result.formulaVersion).toBe("RIC_FORMULA_V1");
   });
 
@@ -38,6 +47,46 @@ describe("RIC_FORMULA_V1", () => {
     const input = fixture();
     input.income[0].amount = "90000";
     expect(calculateCase(input).capabilities[0].sustainableRates.COMMERCIAL).toBe(baseline);
+  });
+
+  it("uses both support categories for UWA but only non-UWA support for APFR", () => {
+    // BR-07 and BR-08: UWA support must not reduce the APFR recovery target.
+    const baseline = calculateCase(fixture()).capabilities[0].sustainableRates;
+    const input = fixture();
+    input.income[0].amount = "50000";
+    const changed = calculateCase(input).capabilities[0].sustainableRates;
+
+    expect(changed.UWA).toBe("70.00");
+    expect(changed.APFR).toBe(baseline.APFR);
+    expect(changed.COMMERCIAL).toBe(baseline.COMMERCIAL);
+  });
+
+  it("rounds monetary outputs half up to two decimal places", () => {
+    const input = fixture();
+    input.costs = [{ ...input.costs[0], amount: "201" }];
+    input.income.forEach((line) => { line.amount = "0"; });
+    input.capacity[0].maximumCapacity = "2";
+
+    const rates = calculateCase(input).capabilities[0].sustainableRates;
+    expect(rates.UWA).toBe("100.50");
+    expect(rates.APFR).toBe("135.68");
+    expect(rates.COMMERCIAL).toBe("135.68");
+  });
+
+  it("rejects negative costs and income", () => {
+    const negativeCost = fixture();
+    negativeCost.costs[0].amount = "-0.01";
+    expect(() => calculateCase(negativeCost)).toThrow(/non-negative/i);
+
+    const negativeIncome = fixture();
+    negativeIncome.income[0].amount = "-0.01";
+    expect(() => calculateCase(negativeIncome)).toThrow(/non-negative/i);
+  });
+
+  it("rejects utilisation above 100 percent", () => {
+    const input = fixture();
+    input.capacity[0].forecastUtilisationPct = "100.000001";
+    expect(() => calculateCase(input)).toThrow(/cannot exceed 100%/i);
   });
 
   it("allocates platform costs once across multiple capabilities", () => {
