@@ -123,7 +123,7 @@ npm run build
 npm run test:e2e
 ```
 
-`npm run ci` runs the pull-request quality gate except browser E2E. Formula changes must include a Rule ID and a Golden Test.
+`npm run ci` runs the fast local quality checks. The GitHub `quality` workflow also installs Chromium and runs the Playwright browser suite before a Pull Request can merge. Formula changes must include a Rule ID and a Golden Test.
 
 ## Architecture
 
