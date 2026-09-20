@@ -7,8 +7,30 @@ export default defineConfig({
   workers: process.env.CI ? 1 : undefined,
   use: {
     baseURL: "http://localhost:3000",
-    channel: process.env.CI ? undefined : "msedge",
     trace: "retain-on-failure",
   },
-  webServer: { command: "npm run dev", url: "http://localhost:3000/api/health", reuseExistingServer: true, timeout: 120_000 },
+
+  projects: [
+    {
+      name: "chrome",
+      use: {
+        browserName: "chromium",
+        channel: "chrome",
+      },
+    },
+    {
+      name: "edge",
+      use: {
+        browserName: "chromium",
+        channel: "msedge",
+      },
+    },
+  ],
+
+  webServer: {
+    command: "npm run dev",
+    url: "http://localhost:3000/api/health",
+    reuseExistingServer: true,
+    timeout: 120_000,
+  },
 });
