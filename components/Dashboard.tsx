@@ -74,7 +74,7 @@ export function Dashboard() {
         <section className="formula-banner">
           <span className="formula-icon"><ShieldCheck size={19} /></span>
           <div><strong>RIC Formula V1 is active</strong><small>35% external indirect-cost recovery · GST exclusive · Decimal-safe calculations</small></div>
-          <span className="pill green">VERIFIED</span>
+          <span className="pill green">TESTED</span>
           <a className="formula-banner-link" href="/business-rules">View current rules <ArrowRight size={14} /></a>
         </section>
 
