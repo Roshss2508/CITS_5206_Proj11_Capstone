@@ -1,10 +1,15 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { jsonError } from "@/src/modules/api";
+import { wrapPdfText } from "@/src/modules/pdfText";
 import { getCase } from "@/src/modules/repository";
 import type { CalculationResult } from "@/src/modules/types";
 
 type Context = { params: Promise<{ id: string }> };
-const safe = (value: string) => value.replace(/[^\x20-\x7E]/g, "?");
+const PAGE_WIDTH = 612;
+const PAGE_HEIGHT = 792;
+const PAGE_MARGIN = 54;
+const PAGE_TOP = 735;
+const PAGE_BOTTOM = 60;
 
 export async function GET(request: Request, context: Context) {
   try {
@@ -17,12 +22,24 @@ export async function GET(request: Request, context: Context) {
     const regular = await document.embedFont(StandardFonts.Helvetica);
     const bold = await document.embedFont(StandardFonts.HelveticaBold);
     const navy = rgb(0.04, 0.16, 0.28);
-    let page = document.addPage([612, 792]);
-    let y = 735;
+    let page = document.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+    let y = PAGE_TOP;
     const line = (label: string, value?: string, strong = false) => {
-      if (y < 60) { page = document.addPage([612, 792]); y = 735; }
-      page.drawText(safe(value ? `${label}: ${value}` : label), { x: 54, y, size: strong ? 15 : 10, font: strong ? bold : regular, color: strong ? navy : rgb(0.12, 0.18, 0.24) });
-      y -= strong ? 25 : 17;
+      const text = value ? `${label}: ${value}` : label;
+      const font = strong ? bold : regular;
+      const size = strong ? 15 : 10;
+      const lineHeight = strong ? 25 : 17;
+      const maxWidth = PAGE_WIDTH - (PAGE_MARGIN * 2);
+      const wrappedLines = wrapPdfText(text, maxWidth, (candidate) => font.widthOfTextAtSize(candidate, size));
+
+      for (const wrappedLine of wrappedLines) {
+        if (y < PAGE_BOTTOM) {
+          page = document.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
+          y = PAGE_TOP;
+        }
+        page.drawText(wrappedLine, { x: PAGE_MARGIN, y, size, font, color: strong ? navy : rgb(0.12, 0.18, 0.24) });
+        y -= lineHeight;
+      }
     };
     line("RESEARCH INFRASTRUCTURE COSTING & PRICING", undefined, true);
     line(aggregate.costingCase.platformName, undefined, true);
