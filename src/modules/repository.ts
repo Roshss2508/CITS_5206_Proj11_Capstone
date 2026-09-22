@@ -212,7 +212,7 @@ const ALLOWED_TRANSITIONS: Record<CaseStatus, CaseStatus[]> = {
   DRAFT: ["READY_FOR_REVIEW", "ARCHIVED"],
   READY_FOR_REVIEW: ["DRAFT", "APPROVED", "ARCHIVED"],
   APPROVED: ["ARCHIVED"],
-  ARCHIVED: [],
+  ARCHIVED: ["DRAFT"],
 };
 
 export async function transitionStatus(caseId: string, target: CaseStatus, actor: Actor, comment: string) {
@@ -222,6 +222,7 @@ export async function transitionStatus(caseId: string, target: CaseStatus, actor
   if (target === "APPROVED" && actor.role !== "REVIEWER") throw new Response("Only the reviewer can approve a case.", { status: 403 });
   if (target === "READY_FOR_REVIEW" && actor.role !== "EDITOR") throw new Response("Only the editor can submit a draft.", { status: 403 });
   if (target === "ARCHIVED" && actor.role !== "EDITOR") throw new Response("Only the editor can archive a case.", { status: 403 });
+  if (current === "ARCHIVED" && target === "DRAFT" && actor.role !== "EDITOR") throw new Response("Only the editor can restore an archived case.", { status: 403 });
   if ((target === "READY_FOR_REVIEW" || target === "APPROVED") && aggregate.snapshots.length === 0) throw new Response("Create a calculation snapshot before submitting or approving the case.", { status: 409 });
   await getDb().update(costingCases).set({ status: target, updatedAt: now() }).where(eq(costingCases.id, caseId));
   await addAudit(caseId, actor, "STATUS_CHANGED", comment || `Changed status from ${current} to ${target}.`, current, target);
