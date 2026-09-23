@@ -46,3 +46,58 @@ label{display:grid;gap:7px;color:#405469;font-size:12px;font-weight:750}
 @media(max-width:1080px){.case-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.create-panel{grid-template-columns:1fr 1fr}.create-panel>div:first-child{grid-column:1/-1}.line-header{display:none}.line-row{grid-template-columns:1fr 1fr}.line-row textarea{grid-column:1/-1}.line-row>.icon-button{grid-column:2;justify-self:end}.financial-summary{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:860px){.product-shell{grid-template-columns:1fr}.product-sidebar{position:static;height:auto;padding:20px}.product-sidebar nav{margin-top:20px;grid-template-columns:repeat(3,1fr)}.sidebar-guidance{display:none}.product-main{padding:28px 18px 55px}.dashboard-header,.wizard-header{flex-direction:column}.header-actions{justify-content:flex-start}.stepper{grid-template-columns:1fr}.stepper li{border-right:0;border-bottom:1px solid var(--line)}.stepper li:last-child{border-bottom:0}.stepper button{min-height:48px}.wizard-panel{padding:22px}.rate-columns{grid-template-columns:1fr}.form-card{align-items:stretch;flex-direction:column}.form-card-number{align-self:flex-start}.guidance-box{grid-template-columns:1fr;gap:7px}.calculate-bar,.approval-panel{align-items:flex-start;flex-direction:column}}
 @media(max-width:580px){.product-sidebar nav{grid-template-columns:1fr}.dashboard-header h1{font-size:36px}.case-grid,.review-grid,.form-grid.two,.form-grid.three{grid-template-columns:1fr}.create-panel{grid-template-columns:1fr}.line-row{grid-template-columns:1fr}.line-row textarea{grid-column:auto}.line-row>.icon-button{grid-column:auto}.financial-summary{grid-template-columns:1fr}.wizard-footer>span{display:none}.wizard-footer{gap:10px}.wizard-footer .button{flex:1}.export-row{flex-direction:column}.audit-list>div{grid-template-columns:14px 1fr}.audit-list time{grid-column:2}.formula-banner>.pill{display:none}}
+
+.modal-backdrop{
+  position:fixed;
+  inset:0;
+  z-index:20;
+  display:grid;
+  place-items:center;
+  padding:20px;
+  background:rgba(10,39,71,.45);
+}
+
+.modal-dialog{
+  width:min(100%,460px);
+  padding:24px;
+  display:grid;
+  gap:18px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--white);
+  box-shadow:0 24px 60px rgba(10,39,71,.22);
+}
+
+.modal-dialog h2{
+  margin:0 0 7px;
+  color:var(--navy);
+  font-size:22px;
+}
+
+.modal-dialog p{
+  margin:0;
+  color:var(--muted);
+  line-height:1.55;
+}
+
+.modal-icon{
+  width:42px;
+  height:42px;
+  display:grid;
+  place-items:center;
+  border-radius:50%;
+}
+
+.modal-icon.danger{
+  color:var(--red);
+  background:#fff0f0;
+}
+
+.button.danger{
+  color:#fff;
+  background:var(--red);
+}
+
+.button.danger:hover:not(:disabled){
+  background:#9e3030;
+}

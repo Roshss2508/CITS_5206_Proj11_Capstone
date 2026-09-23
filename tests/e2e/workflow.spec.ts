@@ -282,5 +282,46 @@ test.describe("Issue #6 – core costing workflow", () => {
       const minimumUwa = await page.getByText(/^Minimum \$/).first().innerText();
       expect(Number(cells[4]).toFixed(2)).toBe(toNumber(minimumUwa).toFixed(2));
     });
+
+    await test.step("Archive requires confirmation", async () => {
+      await page.goto("/");
+
+      const caseCard = page.locator(".case-card").filter({ hasText: caseName });
+
+      await expect(caseCard).toBeVisible();
+
+      // First verify cancelling does not archive the case.
+      await caseCard.getByRole("button", { name: /Archive case/i }).click();
+
+      await expect(
+        page.getByRole("heading", { name: /Archive costing case/i }),
+      ).toBeVisible();
+
+      await page.getByRole("button", { name: /^Cancel$/ }).click();
+
+      await expect(
+        page.getByRole("heading", { name: /Archive costing case/i }),
+      ).toHaveCount(0);
+
+      await expect(caseCard.getByText("Draft")).toBeVisible();
+
+      // Then confirm the archive action.
+      await caseCard.getByRole("button", { name: /Archive case/i }).click();
+
+      const archiveResponse = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/cases/${caseId}/status`) &&
+          response.request().method() === "POST",
+      );
+
+      await page
+        .getByRole("dialog")
+        .getByRole("button", { name: /Archive case/i })
+        .click();
+
+      expect((await archiveResponse).status()).toBe(200);
+
+      await expect(caseCard.getByText("Archived")).toBeVisible();
+    });
   });
 });
