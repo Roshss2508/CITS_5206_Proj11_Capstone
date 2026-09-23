@@ -71,10 +71,11 @@ export function Dashboard() {
           <div className="header-actions"><DemoRoleToggle role={role} onChange={setRole} />{role === "EDITOR" && <button className="button primary" onClick={() => setShowCreate(true)} type="button"><Plus size={18} /> New costing case</button>}</div>
         </header>
 
-        <section className="formula-banner" id="business-rules">
+        <section className="formula-banner">
           <span className="formula-icon"><ShieldCheck size={19} /></span>
           <div><strong>RIC Formula V1 is active</strong><small>35% external indirect-cost recovery · GST exclusive · Decimal-safe calculations</small></div>
-          <span className="pill green">VERIFIED</span>
+          <span className="pill green">TESTED</span>
+          <a className="formula-banner-link" href="/business-rules">View current rules <ArrowRight size={14} /></a>
         </section>
 
         {error && <div className="notice error" role="alert">{error}</div>}
