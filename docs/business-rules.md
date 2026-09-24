@@ -24,5 +24,7 @@ SQLite stores financial values as decimal strings. `decimal.js` performs every a
 - Whether recurrent operating support should be allocated equally or by a capability-specific weighting in future versions.
 - Whether the platform retains any part of the 35% external indirect-cost recovery.
 - Formal UWA terminology for APFR versus PFRI in reports.
+- Whether benchmark data must be saved as a required record with every costing case, or is only used as review context.
+- What exact fields the PDF and CSV exports must contain to satisfy approval and communication requirements.
 
 Changes to these decisions require a new formula version and must never overwrite existing snapshots.

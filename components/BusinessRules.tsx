@@ -25,6 +25,8 @@ const pendingRules = [
   "Whether recurrent operating support should be allocated equally or by a capability-specific weighting in future versions.",
   "Whether the platform retains any part of the 35% external indirect-cost recovery.",
   "Formal UWA terminology for APFR versus PFRI in reports.",
+  "Whether benchmark data must be saved as a required record with every costing case, or is only used as review context.",
+  "What exact fields the PDF and CSV exports must contain to satisfy approval and communication requirements.",
 ];
 
 function resolveBackTarget(from: string | null): { href: string; label: string } {
