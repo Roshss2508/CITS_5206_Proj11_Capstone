@@ -22,6 +22,8 @@ export function Dashboard() {
   const [platformName, setPlatformName] = useState("Synthetic Imaging Platform");
   const [pricingPeriod, setPricingPeriod] = useState("2027–2029");
   const [error, setError] = useState("");
+  const [caseToArchive, setCaseToArchive] = useState<CostingCase | null>(null);
+  const [archiving, setArchiving] = useState(false);
 
   const loadCases = async () => {
     try {
@@ -57,9 +59,27 @@ export function Dashboard() {
 
   const archive = async (id: string) => {
     try {
-      await apiRequest(`/api/v1/cases/${id}/status`, role, { method: "POST", body: JSON.stringify({ status: "ARCHIVED", comment: "Archived from the case dashboard." }) });
+      setArchiving(true);
+
+      await apiRequest(`/api/v1/cases/${id}/status`, role, {
+        method: "POST",
+        body: JSON.stringify({
+          status: "ARCHIVED",
+          comment: "Archived from the case dashboard.",
+        }),
+      });
+
+      setCaseToArchive(null);
       await loadCases();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to archive the case."); }
+    } catch (caught) {
+      setError(
+        caught instanceof Error
+          ? caught.message
+          : "Unable to archive the case."
+      );
+    } finally {
+      setArchiving(false);
+    }
   };
 
   return (
@@ -102,7 +122,7 @@ export function Dashboard() {
                   <div className="case-actions">
                     <a className="button primary compact" href={`/cases/${item.id}`}>Open case <ArrowRight size={16} /></a>
                     {role === "EDITOR" && item.status !== "ARCHIVED" && <button aria-label="Duplicate case" className="icon-button" onClick={() => duplicate(item.id)} title="Duplicate" type="button"><Copy size={17} /></button>}
-                    {role === "EDITOR" && item.status !== "ARCHIVED" && <button aria-label="Archive case" className="icon-button" onClick={() => archive(item.id)} title="Archive" type="button"><Archive size={17} /></button>}
+                    {role === "EDITOR" && item.status !== "ARCHIVED" && <button aria-label="Archive case" className="icon-button" onClick={() => setCaseToArchive(item)} title="Archive" type="button"><Archive size={17} /></button>}
                   </div>
                 </article>
               ))}
@@ -110,6 +130,54 @@ export function Dashboard() {
           )}
         </section>
       </section>
+      {caseToArchive && (
+        <div className="modal-backdrop">
+          <div
+            aria-labelledby="archive-dialog-title"
+            aria-modal="true"
+            className="modal-dialog"
+            role="dialog"
+          >
+            <div className="modal-icon danger">
+              <Archive size={22} />
+            </div>
+
+            <div>
+              <h2 id="archive-dialog-title">Archive costing case?</h2>
+
+              <p>
+                <strong>{caseToArchive.platformName}</strong> will be archived and
+                become read-only.
+              </p>
+            </div>
+
+            <div className="button-row">
+              <button
+                className="button ghost"
+                disabled={archiving}
+                onClick={() => setCaseToArchive(null)}
+                type="button"
+              >
+                Cancel
+              </button>
+
+              <button
+                className="button danger"
+                disabled={archiving}
+                onClick={() => void archive(caseToArchive.id)}
+                type="button"
+              >
+                {archiving ? (
+                  <LoaderCircle className="spin" size={17} />
+                ) : (
+                  <Archive size={17} />
+                )}
+                Archive case
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
