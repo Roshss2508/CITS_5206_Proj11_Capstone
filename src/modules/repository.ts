@@ -27,6 +27,7 @@ import type {
   IncomeLine,
   ProposedRate,
 } from "@/src/modules/types";
+import { STALE_SNAPSHOT_MESSAGE, getSnapshotFreshness } from "@/src/modules/snapshotFreshness";
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
@@ -90,7 +91,7 @@ export async function getCase(caseId: string): Promise<CostingCaseAggregate> {
     db.select().from(calculationSnapshots).where(eq(calculationSnapshots.caseId, caseId)).orderBy(desc(calculationSnapshots.createdAt)),
     db.select().from(auditEvents).where(eq(auditEvents.caseId, caseId)).orderBy(desc(auditEvents.createdAt)),
   ]);
-  return {
+  const aggregate = {
     costingCase: costingCase as CostingCase,
     capabilities: caseCapabilities as Capability[],
     costs: costs as CostLine[],
@@ -101,6 +102,7 @@ export async function getCase(caseId: string): Promise<CostingCaseAggregate> {
     snapshots: snapshots as CalculationSnapshot[],
     auditEvents: events as AuditEvent[],
   };
+  return { ...aggregate, snapshotFreshness: getSnapshotFreshness(aggregate) };
 }
 
 export async function updateCase(caseId: string, values: Partial<Pick<CostingCase, "platformName" | "pricingPeriod" | "currentStep">>, actor: Actor) {
@@ -223,6 +225,7 @@ export async function transitionStatus(caseId: string, target: CaseStatus, actor
   if (target === "READY_FOR_REVIEW" && actor.role !== "EDITOR") throw new Response("Only the editor can submit a draft.", { status: 403 });
   if (target === "ARCHIVED" && actor.role !== "EDITOR") throw new Response("Only the editor can archive a case.", { status: 403 });
   if ((target === "READY_FOR_REVIEW" || target === "APPROVED") && aggregate.snapshots.length === 0) throw new Response("Create a calculation snapshot before submitting or approving the case.", { status: 409 });
+  if ((target === "READY_FOR_REVIEW" || target === "APPROVED") && aggregate.snapshotFreshness === "STALE") throw new Response(STALE_SNAPSHOT_MESSAGE, { status: 409 });
   await getDb().update(costingCases).set({ status: target, updatedAt: now() }).where(eq(costingCases.id, caseId));
   await addAudit(caseId, actor, "STATUS_CHANGED", comment || `Changed status from ${current} to ${target}.`, current, target);
   return getCase(caseId);

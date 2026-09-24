@@ -123,6 +123,8 @@ export interface AuditEvent {
   createdAt: string;
 }
 
+export type SnapshotFreshness = "NONE" | "CURRENT" | "STALE";
+
 export interface CostingCaseAggregate {
   costingCase: CostingCase;
   capabilities: Capability[];
@@ -132,6 +134,8 @@ export interface CostingCaseAggregate {
   proposedRates: ProposedRate[];
   benchmarks: Benchmark[];
   snapshots: CalculationSnapshot[];
+  /** Whether the newest snapshot still matches the case's calculation inputs. */
+  snapshotFreshness: SnapshotFreshness;
   auditEvents: AuditEvent[];
 }
 

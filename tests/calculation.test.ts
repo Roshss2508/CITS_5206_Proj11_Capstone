@@ -16,7 +16,7 @@ function fixture(): CostingCaseAggregate {
     ],
     capacity: [{ id: "capacity-1", caseId: "case-1", capabilityId: "cap-1", maximumCapacity: "1000", forecastUtilisationPct: "100", historicYear1: null, historicYear2: null, historicYear3: null, justification: "Reference case." }],
     proposedRates: [{ id: "rates-1", caseId: "case-1", capabilityId: "cap-1", uwaRate: null, apfrRate: null, commercialRate: null, uwaSharePct: "60", apfrSharePct: "25", commercialSharePct: "15", justification: "Use calculated rates." }],
-    benchmarks: [], snapshots: [], auditEvents: [],
+    benchmarks: [], snapshots: [], snapshotFreshness: "NONE", auditEvents: [],
   };
 }
 
