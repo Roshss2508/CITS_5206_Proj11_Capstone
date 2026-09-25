@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Archive, ArrowRight, Copy, FilePlus2, LoaderCircle, Plus, ShieldCheck } from "lucide-react";
+import { Archive, ArchiveRestore, ArrowRight, Copy, FilePlus2, LoaderCircle, Plus, ShieldCheck } from "lucide-react";
 import { apiRequest, useDemoRole } from "@/src/client/api";
 import type { CostingCase, CostingCaseAggregate } from "@/src/modules/types";
 import { DemoRoleToggle } from "@/components/DemoRoleToggle";
@@ -82,6 +82,13 @@ export function Dashboard() {
     }
   };
 
+  const restore = async (id: string) => {
+    try {
+      await apiRequest(`/api/v1/cases/${id}/status`, role, { method: "POST", body: JSON.stringify({ status: "DRAFT", comment: "Restored from the case dashboard." }) });
+      await loadCases();
+    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to restore the case."); }
+  };
+
   return (
     <main className="product-shell">
       <ProductSidebar />
@@ -123,6 +130,8 @@ export function Dashboard() {
                     <a className="button primary compact" href={`/cases/${item.id}`}>Open case <ArrowRight size={16} /></a>
                     {role === "EDITOR" && item.status !== "ARCHIVED" && <button aria-label="Duplicate case" className="icon-button" onClick={() => duplicate(item.id)} title="Duplicate" type="button"><Copy size={17} /></button>}
                     {role === "EDITOR" && item.status !== "ARCHIVED" && <button aria-label="Archive case" className="icon-button" onClick={() => setCaseToArchive(item)} title="Archive" type="button"><Archive size={17} /></button>}
+                    {role === "EDITOR" && item.status === "ARCHIVED" && <button aria-label="Restore case" className="icon-button" onClick={() => restore(item.id)} title="Restore" type="button"><ArchiveRestore size={17} /></button>}
+                    
                   </div>
                 </article>
               ))}
