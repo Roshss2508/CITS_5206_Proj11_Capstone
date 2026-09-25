@@ -24,16 +24,33 @@ export const capabilitiesSchema = z.object({
   })).min(1).max(20),
 });
 
+const costLineSchema = z.object({
+  id: id.optional(),
+  capabilityId: id.nullable(),
+  category: z.enum(COST_CATEGORIES),
+  scope: z.enum(["CAPABILITY", "PLATFORM"]),
+  label: z.string().trim().min(2).max(120),
+  amount: moneyString,
+  justification: z.string().trim().min(3).max(1000),
+}).superRefine((row, context) => {
+  if (row.scope === "CAPABILITY" && !row.capabilityId) {
+    context.addIssue({
+      code: "custom",
+      path: ["capabilityId"],
+      message: "A capability-scoped cost must reference a capability.",
+    });
+  }
+  if (row.scope === "PLATFORM" && row.capabilityId !== null) {
+    context.addIssue({
+      code: "custom",
+      path: ["capabilityId"],
+      message: "A platform-scoped cost must not reference a capability.",
+    });
+  }
+});
+
 export const costsSchema = z.object({
-  costs: z.array(z.object({
-    id: id.optional(),
-    capabilityId: id.nullable(),
-    category: z.enum(COST_CATEGORIES),
-    scope: z.enum(["CAPABILITY", "PLATFORM"]),
-    label: z.string().trim().min(2).max(120),
-    amount: moneyString,
-    justification: z.string().trim().min(3).max(1000),
-  })).max(200),
+  costs: z.array(costLineSchema).max(200),
 });
 
 export const incomeSchema = z.object({
