@@ -57,6 +57,26 @@ describe("capabilitiesSchema", () => {
 });
 
 describe("costsSchema and incomeSchema", () => {
+  it("accepts valid platform and capability-scoped costs", () => {
+    const result = costsSchema.safeParse({ costs: [
+      { capabilityId: null, category: "STAFFING", scope: "PLATFORM", label: "Shared staffing", amount: "100", justification: "Shared across the platform." },
+      { capabilityId: "cap-1", category: "MAINTENANCE", scope: "CAPABILITY", label: "Maintenance", amount: "200", justification: "Direct capability maintenance." },
+    ] });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects a capability-scoped cost without a capability ID", () => {
+    const result = costsSchema.safeParse({ costs: [{ capabilityId: null, category: "OTHER", scope: "CAPABILITY", label: "Staffing", amount: "100", justification: "Explain the evidence." }] });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues[0]?.message).toMatch(/must reference a capability/i);
+  });
+
+  it("rejects a platform-scoped cost containing a capability ID", () => {
+    const result = costsSchema.safeParse({ costs: [{ capabilityId: "cap-1", category: "OTHER", scope: "PLATFORM", label: "Staffing", amount: "100", justification: "Explain the evidence." }] });
+    expect(result.success).toBe(false);
+    if (!result.success) expect(result.error.issues[0]?.message).toMatch(/must not reference a capability/i);
+  });
+
   it("rejects a negative cost amount", () => {
     const result = costsSchema.safeParse({ costs: [{ capabilityId: null, category: "OTHER", scope: "PLATFORM", label: "Staffing", amount: "-100", justification: "Explain the evidence." }] });
     expect(result.success).toBe(false);

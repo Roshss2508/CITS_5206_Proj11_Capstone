@@ -37,6 +37,23 @@ async function assertEditable(caseId: string) {
   if (row.status !== "DRAFT") throw new Response("Submitted, approved and archived cases are read-only.", { status: 409 });
 }
 
+async function assertCapabilitiesBelongToCase(caseId: string, capabilityIds: string[]) {
+  const uniqueIds = [...new Set(capabilityIds)];
+  if (uniqueIds.length === 0) return;
+
+  const rows = await getDb()
+    .select({ id: capabilities.id })
+    .from(capabilities)
+    .where(and(eq(capabilities.caseId, caseId), inArray(capabilities.id, uniqueIds)));
+
+  if (rows.length !== uniqueIds.length) {
+    throw Response.json(
+      { error: "One or more capability IDs are invalid or do not belong to this costing case." },
+      { status: 400 },
+    );
+  }
+}
+
 async function touchCase(caseId: string, currentStep?: number) {
   const values: { updatedAt: string; currentStep?: number } = { updatedAt: now() };
   if (currentStep) values.currentStep = currentStep;
@@ -142,6 +159,10 @@ export async function saveCapabilities(caseId: string, input: Array<Omit<Capabil
 export async function saveCosts(caseId: string, rows: Array<Omit<CostLine, "caseId" | "id"> & { id?: string }>, actor: Actor) {
   await ensureDatabase();
   await assertEditable(caseId);
+  await assertCapabilitiesBelongToCase(
+    caseId,
+    rows.flatMap((row) => row.capabilityId ? [row.capabilityId] : []),
+  );
   const db = getDb();
   await db.delete(costLines).where(eq(costLines.caseId, caseId));
   if (rows.length) await db.insert(costLines).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId })));
@@ -164,6 +185,7 @@ export async function saveIncome(caseId: string, rows: Array<Omit<IncomeLine, "c
 export async function saveCapacity(caseId: string, rows: Array<Omit<CapacityPlan, "caseId" | "id" | "historicYear1" | "historicYear2" | "historicYear3"> & { id?: string; historicYear1?: string | null; historicYear2?: string | null; historicYear3?: string | null }>, actor: Actor) {
   await ensureDatabase();
   await assertEditable(caseId);
+  await assertCapabilitiesBelongToCase(caseId, rows.map((row) => row.capabilityId));
   const db = getDb();
   await db.delete(capacityPlans).where(eq(capacityPlans.caseId, caseId));
   await db.insert(capacityPlans).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId, historicYear1: row.historicYear1 || null, historicYear2: row.historicYear2 || null, historicYear3: row.historicYear3 || null })));
@@ -175,6 +197,7 @@ export async function saveCapacity(caseId: string, rows: Array<Omit<CapacityPlan
 export async function saveProposedRates(caseId: string, rows: Array<Omit<ProposedRate, "caseId" | "id" | "uwaRate" | "apfrRate" | "commercialRate"> & { id?: string; uwaRate?: string | null; apfrRate?: string | null; commercialRate?: string | null }>, actor: Actor) {
   await ensureDatabase();
   await assertEditable(caseId);
+  await assertCapabilitiesBelongToCase(caseId, rows.map((row) => row.capabilityId));
   const db = getDb();
   await db.delete(proposedRates).where(eq(proposedRates.caseId, caseId));
   await db.insert(proposedRates).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId, uwaRate: row.uwaRate || null, apfrRate: row.apfrRate || null, commercialRate: row.commercialRate || null })));
