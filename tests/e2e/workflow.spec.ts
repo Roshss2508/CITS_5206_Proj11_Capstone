@@ -486,7 +486,7 @@ test.describe("Issue #33 – Step 2 deleted-row persistence", () => {
       }),
     ).toBeVisible();
 
-    // The previously deleted rows must still be absent.
+    // Confirm the deleted rows stayed removed while the untouched rows remain.
     await expect(page.getByLabel("Cost label")).toHaveCount(1);
     await expect(page.getByLabel("Cost label")).toHaveValue(
       "Annual maintenance",
@@ -506,7 +506,10 @@ test.describe("Issue #33 – Step 2 deleted-row persistence", () => {
       .getByRole("button", { name: /Remove WA Government support/i })
       .click();
 
-    // Empty collections should be clearly represented in the UI.
+    // Step 2 should now be genuinely empty.
+    await expect(page.getByLabel("Cost label")).toHaveCount(0);
+    await expect(page.getByLabel("Income source")).toHaveCount(0);
+
     await expect(
       page.getByText("No operating costs added."),
     ).toBeVisible();
@@ -515,10 +518,7 @@ test.describe("Issue #33 – Step 2 deleted-row persistence", () => {
       page.getByText("No non-variable operating income added."),
     ).toBeVisible();
 
-    await expect(page.getByLabel("Cost label")).toHaveCount(0);
-    await expect(page.getByLabel("Income source")).toHaveCount(0);
-
-    // Save the genuinely empty collections.
+    // Save the empty Step 2.
     await page
       .getByRole("button", { name: /Save & continue/i })
       .click();
@@ -529,10 +529,36 @@ test.describe("Issue #33 – Step 2 deleted-row persistence", () => {
       }),
     ).toBeVisible();
 
-    // Navigate back and confirm the defaults were not recreated.
+    // Revisit Step 1 after Step 2 has already been saved empty.
     await page
-      .getByRole("button", { name: /Costs & income/i })
+      .getByRole("button", { name: /Platform & capabilities/i })
       .click();
+
+    await expect(
+      page.getByRole("heading", {
+        name: /Define the platform and its billable capabilities/i,
+      }),
+    ).toBeVisible();
+
+    // Change Step 1 and save it again.
+    // This causes currentStep to move back to 2, which previously triggered the bug.
+    await page
+      .getByLabel("Capability name")
+      .fill("QA Service Updated");
+
+    await page
+      .getByRole("button", { name: /Save & continue/i })
+      .click();
+
+    // Step 2 must still be empty after Step 1 was re-saved.
+    await expect(
+      page.getByRole("heading", {
+        name: /Capture full operating costs and recurrent support/i,
+      }),
+    ).toBeVisible();
+
+    await expect(page.getByLabel("Cost label")).toHaveCount(0);
+    await expect(page.getByLabel("Income source")).toHaveCount(0);
 
     await expect(
       page.getByText("No operating costs added."),
@@ -542,19 +568,19 @@ test.describe("Issue #33 – Step 2 deleted-row persistence", () => {
       page.getByText("No non-variable operating income added."),
     ).toBeVisible();
 
-    await expect(page.getByLabel("Cost label")).toHaveCount(0);
-    await expect(page.getByLabel("Income source")).toHaveCount(0);
-
-    // Reload once more to prove the empty state survives hydration.
-    await page.reload();
+    // Save Step 2 again.
+    // This verifies that synthetic defaults cannot accidentally be written back.
+    await page
+      .getByRole("button", { name: /Save & continue/i })
+      .click();
 
     await expect(
       page.getByRole("heading", {
-        name: caseName,
-        level: 1,
+        name: /Set realistic capacity and forecast utilisation/i,
       }),
     ).toBeVisible();
 
+    // Return to Step 2.
     await page
       .getByRole("button", { name: /Costs & income/i })
       .click();
@@ -565,6 +591,40 @@ test.describe("Issue #33 – Step 2 deleted-row persistence", () => {
       }),
     ).toBeVisible();
 
+    await expect(page.getByLabel("Cost label")).toHaveCount(0);
+    await expect(page.getByLabel("Income source")).toHaveCount(0);
+
+    await expect(
+      page.getByText("No operating costs added."),
+    ).toBeVisible();
+
+    await expect(
+      page.getByText("No non-variable operating income added."),
+    ).toBeVisible();
+
+    // Reload to force the case to hydrate again from persisted data.
+    await page.reload();
+
+    await expect(
+      page.getByRole("heading", {
+        name: caseName,
+        level: 1,
+      }),
+    ).toBeVisible();
+
+    // The case may reopen on another persisted step,
+    // so explicitly navigate back to Step 2.
+    await page
+      .getByRole("button", { name: /Costs & income/i })
+      .click();
+
+    await expect(
+      page.getByRole("heading", {
+        name: /Capture full operating costs and recurrent support/i,
+      }),
+    ).toBeVisible();
+
+    // Empty state must survive the reload as well.
     await expect(page.getByLabel("Cost label")).toHaveCount(0);
     await expect(page.getByLabel("Income source")).toHaveCount(0);
 
