@@ -90,7 +90,12 @@ export function CaseWizard({ caseId }: { caseId: string }) {
       }
       if (target === 3) response = await request(`/api/v1/cases/${caseId}/capacity`, { capacity: capacity.map((item) => ({ id: item.id, capabilityId: item.capabilityId, maximumCapacity: item.maximumCapacity, forecastUtilisationPct: item.forecastUtilisationPct, historicYear1: item.historicYear1, historicYear2: item.historicYear2, historicYear3: item.historicYear3, justification: item.justification })) });
       if (target === 4) response = await request(`/api/v1/cases/${caseId}/proposed-rates`, { proposedRates: rates.map((item) => ({ id: item.id, capabilityId: item.capabilityId, uwaRate: item.uwaRate, apfrRate: item.apfrRate, commercialRate: item.commercialRate, uwaSharePct: item.uwaSharePct, apfrSharePct: item.apfrSharePct, commercialSharePct: item.commercialSharePct, justification: item.justification })) });
-      if (response && !silent) hydrate(response.case);
+      if (response) {
+        // Silent saves (autosave, Back) must not reset the form, but they can still change
+        // whether the latest snapshot is stale, so keep the server-side aggregate in sync.
+        if (silent) setAggregate(response.case);
+        else hydrate(response.case);
+      }
       setSaveState("All changes saved");
       setError("");
       return true;
@@ -153,8 +158,14 @@ export function CaseWizard({ caseId }: { caseId: string }) {
       setWorking(true);
       const response = await request<{ case: CostingCaseAggregate }>(`/api/v1/cases/${caseId}/status`, { status, comment: status === "APPROVED" ? "Approved after review of the immutable calculation snapshot." : status === "DRAFT" ? "Returned for changes after review." : "Submitted for client review." }, "POST");
       hydrate(response.case);
-    } catch (caught) { setError(describeError(caught, "Unable to change case status.")); }
-    finally { setWorking(false); }
+    } catch (caught) {
+      setError(describeError(caught, "Unable to change case status."));
+      // The server may know something this page does not (for example inputs changed in another tab).
+      try {
+        const refreshed = await apiRequest<{ case: CostingCaseAggregate }>(`/api/v1/cases/${caseId}`, role);
+        setAggregate(refreshed.case);
+      } catch { /* keep the original error message */ }
+    } finally { setWorking(false); }
   };
 
   if (loading) return <main className="loading-screen"><LoaderCircle className="spin" /> Loading the costing case…</main>;
@@ -188,8 +199,8 @@ export function CaseWizard({ caseId }: { caseId: string }) {
           {step === 1 && <StepCapabilities items={capabilities} readOnly={readOnly} onAdd={addCapability} onChange={(items) => { setCapabilities(items); markDirty(); }} />}
           {step === 2 && <StepCostsIncome capabilities={capabilities} costs={costs} income={income} readOnly={readOnly} onCosts={(items) => { setCosts(items); markDirty(); }} onIncome={(items) => { setIncome(items); markDirty(); }} />}
           {step === 3 && <StepCapacity capabilities={capabilities} items={capacity} readOnly={readOnly} onChange={(items) => { setCapacity(items); markDirty(); }} />}
-          {step === 4 && <StepRates capabilities={capabilities} items={rates} result={result} readOnly={readOnly} working={working} onChange={(items) => { setRates(items); markDirty(); }} onCalculate={() => void calculate()} />}
-          {step === 5 && <StepReview aggregate={aggregate} result={result} role={role} working={working} onStatus={changeStatus} />}
+          {step === 4 && <StepRates capabilities={capabilities} items={rates} result={result} stale={aggregate.snapshotFreshness === "STALE"} readOnly={readOnly} working={working} onChange={(items) => { setRates(items); markDirty(); }} onCalculate={() => void calculate()} />}
+          {step === 5 && <StepReview aggregate={aggregate} result={result} role={role} working={working} onStatus={changeStatus} onRecalculate={() => void goTo(4)} />}
         </section>
 
         <footer className="wizard-footer">
@@ -238,13 +249,13 @@ function StepCapacity({ capabilities, items, readOnly, onChange }: { capabilitie
   </>;
 }
 
-function StepRates({ capabilities, items, result, readOnly, working, onChange, onCalculate }: { capabilities: Capability[]; items: ProposedRate[]; result: CalculationResult | null; readOnly: boolean; working: boolean; onChange: (items: ProposedRate[]) => void; onCalculate: () => void }) {
+function StepRates({ capabilities, items, result, stale, readOnly, working, onChange, onCalculate }: { capabilities: Capability[]; items: ProposedRate[]; result: CalculationResult | null; stale: boolean; readOnly: boolean; working: boolean; onChange: (items: ProposedRate[]) => void; onCalculate: () => void }) {
   const update = (index: number, patch: Partial<ProposedRate>) => onChange(items.map((item, i) => i === index ? { ...item, ...patch } : item));
   return <>
     <SectionIntro kicker="STEP 4" title="Compare sustainable rates with a practical pricing scenario" copy="Leave a proposed rate blank to use the calculated minimum. Adjust rates and user mix to understand the effect on annual platform recovery." />
-    {!result ? <div className="calculation-empty"><CircleDollarSign size={34} /><h3>Run the first calculation</h3><p>The engine will validate every input and save an immutable RIC Formula V1 snapshot.</p>{!readOnly && <button className="button primary" disabled={working} onClick={onCalculate} type="button">{working ? <LoaderCircle className="spin" size={17} /> : <CircleDollarSign size={17} />} Calculate sustainable rates</button>}</div> : <FinancialSummary result={result} />}
+    {!result ? <div className="calculation-empty"><CircleDollarSign size={34} /><h3>Run the first calculation</h3><p>The engine will validate every input and save an immutable RIC Formula V1 snapshot.</p>{!readOnly && <button className="button primary" disabled={working} onClick={onCalculate} type="button">{working ? <LoaderCircle className="spin" size={17} /> : <CircleDollarSign size={17} />} Calculate sustainable rates</button>}</div> : <>{stale && <div className="notice warning" role="status"><AlertTriangle size={18} /><span><strong>These figures are out of date.</strong> Case inputs changed after this calculation, so the results below come from the previous snapshot. Recalculate to create a new snapshot before submitting for review.</span></div>}<FinancialSummary result={result} /></>}
     <div className="rates-stack">{capabilities.map((capability, index) => { const item = items.find((row) => row.capabilityId === capability.id) || items[index]; const calculated = result?.capabilities.find((row) => row.capabilityId === capability.id); return <article className="rate-card" key={capability.id}><div className="rate-card-heading"><div><p className="page-kicker">PRICING SCENARIO</p><h3>{capability.name}</h3></div><span>per {capability.billableUnit.toLowerCase()}</span></div><div className="rate-columns"><RateInput label="UWA researcher" calculated={calculated?.sustainableRates.UWA} disabled={readOnly} value={item?.uwaRate || ""} share={item?.uwaSharePct || ""} onRate={(value) => update(index, { uwaRate: value || null })} onShare={(value) => update(index, { uwaSharePct: value })} /><RateInput label="APFR" calculated={calculated?.sustainableRates.APFR} disabled={readOnly} value={item?.apfrRate || ""} share={item?.apfrSharePct || ""} onRate={(value) => update(index, { apfrRate: value || null })} onShare={(value) => update(index, { apfrSharePct: value })} /><RateInput label="Commercial" calculated={calculated?.sustainableRates.COMMERCIAL} disabled={readOnly} value={item?.commercialRate || ""} share={item?.commercialSharePct || ""} onRate={(value) => update(index, { commercialRate: value || null })} onShare={(value) => update(index, { commercialSharePct: value })} /></div><label>Pricing justification<textarea disabled={readOnly} value={item?.justification || ""} onChange={(event) => update(index, { justification: event.target.value })} /></label></article>; })}</div>
-    {!readOnly && result && <div className="calculate-bar"><div><strong>Ready to refresh the scenario?</strong><span>Recalculating creates a new immutable snapshot; the previous snapshot stays available in Step 5.</span></div><button className="button primary" disabled={working} onClick={onCalculate} type="button">{working ? <LoaderCircle className="spin" size={17} /> : <CircleDollarSign size={17} />} Recalculate & save new snapshot</button></div>}
+    {!readOnly && result && <div className="calculate-bar"><div><strong>{stale ? "Recalculation required" : "Ready to refresh the scenario?"}</strong><span>{stale ? "Inputs changed since the last calculation. Recalculating creates a new immutable snapshot; the previous snapshot stays available." : "Recalculating creates a new immutable snapshot; the previous snapshot stays available in Step 5."}</span></div><button className="button primary" disabled={working} onClick={onCalculate} type="button">{working ? <LoaderCircle className="spin" size={17} /> : <CircleDollarSign size={17} />} Recalculate & save new snapshot</button></div>}
   </>;
 }
 
@@ -256,16 +267,18 @@ function FinancialSummary({ result }: { result: CalculationResult }) {
   return <div className="financial-summary"><div><span>Gross user revenue</span><strong>{money(result.grossRevenue)}</strong></div><div><span>University overhead</span><strong>{money(result.universityOverhead)}</strong></div><div><span>Net platform recovery</span><strong>{money(result.netPlatformRecovery)}</strong></div><div className={Number(result.operatingBalance) >= 0 ? "positive" : "negative"}><span>Operating balance</span><strong>{money(result.operatingBalance)}</strong></div>{result.warnings.length > 0 && <p><AlertTriangle size={16} /> {result.warnings.join(" ")}</p>}</div>;
 }
 
-function StepReview({ aggregate, result, role, working, onStatus }: { aggregate: CostingCaseAggregate; result: CalculationResult | null; role: "EDITOR" | "REVIEWER"; working: boolean; onStatus: (status: string) => void }) {
+function StepReview({ aggregate, result, role, working, onStatus, onRecalculate }: { aggregate: CostingCaseAggregate; result: CalculationResult | null; role: "EDITOR" | "REVIEWER"; working: boolean; onStatus: (status: string) => void; onRecalculate: () => void }) {
   const snapshot = aggregate.snapshots[0];
+  const stale = aggregate.snapshotFreshness === "STALE" && aggregate.costingCase.status === "DRAFT";
   return <>
     <SectionIntro kicker="STEP 5" title="Review the evidence package" copy="The report is generated from an immutable calculation snapshot, so reviewers see exactly the inputs and formula that produced each result." />
     {!result || !snapshot ? <div className="notice warning"><AlertTriangle size={18} /> Return to Step 4 and create a calculation snapshot before review.</div> : <>
+      {stale && <div className="notice warning" id="stale-snapshot-notice" role="status"><AlertTriangle size={18} /><span><strong>Recalculation required.</strong> Case inputs changed after the latest snapshot was calculated, so the figures below are out of date and the case cannot be submitted. {role === "EDITOR" ? <button className="button secondary compact" onClick={onRecalculate} type="button">Go to Step 4 to recalculate</button> : "The editor needs to recalculate it."}</span></div>}
       <FinancialSummary result={result} />
-      <div className="review-grid"><article className="review-card"><FileCheck2 size={22} /><h3>Snapshot ready</h3><p>{snapshot.formulaVersion.replaceAll("_", " ")} · {new Date(snapshot.createdAt).toLocaleString("en-AU")}</p><strong>{result.capabilities.length} capabilities</strong></article><article className="review-card"><ShieldCheck size={22} /><h3>Audit evidence</h3><p>All status changes and calculations are recorded without storing request payloads in the audit log.</p><strong>{aggregate.auditEvents.length} recorded events</strong></article></div>
+      <div className="review-grid"><article className="review-card"><FileCheck2 size={22} /><h3>{stale ? "Snapshot out of date" : "Snapshot ready"}</h3><p>{snapshot.formulaVersion.replaceAll("_", " ")} · {new Date(snapshot.createdAt).toLocaleString("en-AU")}</p><strong>{result.capabilities.length} capabilities</strong></article><article className="review-card"><ShieldCheck size={22} /><h3>Audit evidence</h3><p>All status changes and calculations are recorded without storing request payloads in the audit log.</p><strong>{aggregate.auditEvents.length} recorded events</strong></article></div>
       <div className="export-row"><a className="button primary" href={`/api/v1/cases/${aggregate.costingCase.id}/report.pdf?snapshot=${snapshot.id}`}><Download size={17} /> Download PDF</a><a className="button secondary" href={`/api/v1/cases/${aggregate.costingCase.id}/export.csv`}><FileSpreadsheet size={17} /> Export CSV</a></div>
     </>}
-    <section className="approval-panel"><div><p className="page-kicker">APPROVAL GATE</p><h3>{aggregate.costingCase.status === "DRAFT" ? "Submit the evidence package" : aggregate.costingCase.status === "READY_FOR_REVIEW" ? "Reviewer decision required" : aggregate.costingCase.status === "APPROVED" ? "MVP case approved" : "Case archived"}</h3><p>This demonstration records workflow status; it does not replace UWA delegated-authority approval.</p></div><div className="button-row">{role === "EDITOR" && aggregate.costingCase.status === "DRAFT" && <button className="button primary" disabled={!snapshot || working} onClick={() => onStatus("READY_FOR_REVIEW")} type="button"><Send size={17} /> Submit for review</button>}{role === "REVIEWER" && aggregate.costingCase.status === "READY_FOR_REVIEW" && <><button className="button ghost" disabled={working} onClick={() => onStatus("DRAFT")} type="button"><ChevronLeft size={17} /> Changes required</button><button className="button approve" disabled={working} onClick={() => onStatus("APPROVED")} type="button"><Check size={17} /> Approve case</button></>}</div></section>
+    <section className="approval-panel"><div><p className="page-kicker">APPROVAL GATE</p><h3>{aggregate.costingCase.status === "DRAFT" ? "Submit the evidence package" : aggregate.costingCase.status === "READY_FOR_REVIEW" ? "Reviewer decision required" : aggregate.costingCase.status === "APPROVED" ? "MVP case approved" : "Case archived"}</h3><p>This demonstration records workflow status; it does not replace UWA delegated-authority approval.</p></div><div className="button-row">{role === "EDITOR" && aggregate.costingCase.status === "DRAFT" && <button aria-describedby={stale ? "stale-snapshot-notice" : undefined} className="button primary" disabled={!snapshot || working || stale} onClick={() => onStatus("READY_FOR_REVIEW")} title={stale ? "Recalculate in Step 4 before submitting." : undefined} type="button"><Send size={17} /> Submit for review</button>}{role === "REVIEWER" && aggregate.costingCase.status === "READY_FOR_REVIEW" && <><button className="button ghost" disabled={working} onClick={() => onStatus("DRAFT")} type="button"><ChevronLeft size={17} /> Changes required</button><button className="button approve" disabled={working} onClick={() => onStatus("APPROVED")} type="button"><Check size={17} /> Approve case</button></>}</div></section>
     <section className="audit-section" id="audit"><div className="subsection-heading"><div><h3>Audit history</h3><p>Newest event first.</p></div></div><div className="audit-list">{aggregate.auditEvents.map((event) => <div key={event.id}><span className="audit-dot" /><div><strong>{event.action.replaceAll("_", " ")}</strong><p>{event.details}</p></div><time>{new Date(event.createdAt).toLocaleString("en-AU")}</time></div>)}</div></section>
   </>;
 }

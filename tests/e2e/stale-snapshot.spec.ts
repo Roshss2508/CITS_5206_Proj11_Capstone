@@ -1,4 +1,4 @@
-import { expect, test, type APIRequestContext } from "@playwright/test";
+import { expect, test, type APIRequestContext, type Page } from "@playwright/test";
 
 const EDITOR = { "x-demo-role": "EDITOR" };
 const REVIEWER = { "x-demo-role": "REVIEWER" };
@@ -122,6 +122,26 @@ test.describe("Issue #30 – stale snapshots block submission", () => {
     expect(await response.text()).toMatch(/Create a calculation snapshot/i);
   });
 
+  test("restoring an archived case keeps its snapshot current, and editing it afterwards makes it stale", async ({ request }) => {
+    const created = await createCalculatedCase(request);
+    caseId = created.caseId;
+    const before = await getCase(request, caseId);
+
+    const archived = await request.post(`/api/v1/cases/${caseId}/status`, { headers: EDITOR, data: { status: "ARCHIVED", comment: "Archived for restore test." } });
+    expect(archived.status()).toBe(200);
+    const restored = await request.post(`/api/v1/cases/${caseId}/status`, { headers: EDITOR, data: { status: "DRAFT", comment: "Restored for stale snapshot test." } });
+    expect(restored.status()).toBe(200);
+
+    const afterRestore = await getCase(request, caseId);
+    expect(afterRestore.costingCase.status).toBe("DRAFT");
+    expect(afterRestore.snapshotFreshness).toBe("CURRENT");
+    expect(afterRestore.snapshots).toEqual(before.snapshots);
+
+    await saveInputs(request, caseId, { ...created.inputs, costAmount: "31000" });
+    expect((await getCase(request, caseId)).snapshotFreshness).toBe("STALE");
+    expect((await submit(request, caseId)).status()).toBe(409);
+  });
+
   test("returning a submitted case to draft and editing it makes the old snapshot stale", async ({ request }) => {
     const created = await createCalculatedCase(request);
     caseId = created.caseId;
@@ -133,5 +153,108 @@ test.describe("Issue #30 – stale snapshots block submission", () => {
 
     await saveInputs(request, caseId, { ...created.inputs, costAmount: "12345" });
     expect((await submit(request, caseId)).status()).toBe(409);
+  });
+});
+
+async function openCase(page: Page, caseId: string) {
+  await page.goto(`/cases/${caseId}`);
+  // Clicking before React has hydrated silently does nothing in the dev server.
+  await page.waitForLoadState("networkidle");
+}
+
+test.describe("Issue #30 – recalculation prompts in the wizard", () => {
+  let caseId: string | undefined;
+
+  test.afterEach(async ({ request }) => {
+    if (!caseId) return;
+    await request.post(`/api/v1/cases/${caseId}/status`, { headers: EDITOR, data: { status: "ARCHIVED", comment: "Archived by automated E2E teardown." } });
+    caseId = undefined;
+  });
+
+  test("Step 5 asks for a recalculation and blocks Submit until the case is recalculated", async ({ page, request }) => {
+    const created = await createCalculatedCase(request);
+    caseId = created.caseId;
+    const submitButton = page.getByRole("button", { name: /Submit for review/i });
+    const notice = page.locator("#stale-snapshot-notice");
+
+    await openCase(page, caseId);
+    await expect(page.getByRole("heading", { name: /Review the evidence package/i })).toBeVisible();
+    await expect(submitButton).toBeEnabled();
+    await expect(notice).toHaveCount(0);
+
+    // Another user or tab changes a calculation input after the calculation was made.
+    await saveInputs(request, caseId, { ...created.inputs, costAmount: "25000" });
+    await page.reload();
+    await page.waitForLoadState("networkidle");
+
+    await expect(notice).toContainText("Recalculation required");
+    await expect(page.getByRole("heading", { name: "Snapshot out of date" })).toBeVisible();
+    await expect(submitButton).toBeDisabled();
+
+    await notice.getByRole("button", { name: /Go to Step 4 to recalculate/i }).click();
+    await expect(page.getByRole("heading", { name: /Compare sustainable rates/i })).toBeVisible();
+    await expect(page.getByText("These figures are out of date")).toBeVisible();
+    await expect(page.getByText("Recalculation required")).toBeVisible();
+
+    await page.getByRole("button", { name: /Recalculate & save new snapshot/i }).click();
+    await expect(page.getByText("These figures are out of date")).toHaveCount(0);
+    await expect(page.getByText("Recalculation required")).toHaveCount(0);
+
+    await page.getByRole("button", { name: /Save & continue/i }).click();
+    await expect(page.getByRole("heading", { name: /Review the evidence package/i })).toBeVisible();
+    await expect(notice).toHaveCount(0);
+    await expect(submitButton).toBeEnabled();
+
+    await submitButton.click();
+    await expect(page.locator(".wizard-status-row .pill")).toHaveText(/ready for review/i);
+    await expect(page.getByRole("alert")).toHaveCount(0);
+  });
+
+  test("editing a rate in Step 4 flags the results as out of date, but rewording a justification does not", async ({ page, request }) => {
+    const created = await createCalculatedCase(request);
+    caseId = created.caseId;
+    const outOfDate = page.getByText("These figures are out of date");
+    const saveState = page.locator(".save-state");
+    const savedProposedRates = () => page.waitForResponse((response) => response.url().includes(`/api/v1/cases/${caseId}/proposed-rates`) && response.request().method() === "PUT");
+
+    await openCase(page, caseId);
+    await page.getByRole("button", { name: /Back/i }).click();
+    await expect(page.getByRole("heading", { name: /Compare sustainable rates/i })).toBeVisible();
+    await expect(outOfDate).toHaveCount(0);
+
+    // Evidence text is not a calculation input, so autosaving it must leave the snapshot current.
+    let saved = savedProposedRates();
+    await page.getByLabel("Pricing justification").first().fill("Reworded justification for the same scenario.");
+    expect((await saved).status()).toBe(200);
+    await expect(saveState).toContainText("All changes saved");
+    await expect(outOfDate).toHaveCount(0);
+    expect((await getCase(request, caseId)).snapshotFreshness).toBe("CURRENT");
+
+    // A proposed rate is a calculation input: the autosave must surface the warning without a reload.
+    saved = savedProposedRates();
+    await page.getByLabel("Proposed rate").first().fill("150");
+    expect((await saved).status()).toBe(200);
+    await expect(outOfDate).toBeVisible();
+    await expect(page.getByText("Recalculation required")).toBeVisible();
+    expect((await getCase(request, caseId)).snapshotFreshness).toBe("STALE");
+
+    await page.getByRole("button", { name: /Recalculate & save new snapshot/i }).click();
+    await expect(outOfDate).toHaveCount(0);
+    expect((await getCase(request, caseId)).snapshotFreshness).toBe("CURRENT");
+  });
+
+  test("a restored case whose inputs did not change can be submitted without recalculating", async ({ page, request }) => {
+    const created = await createCalculatedCase(request);
+    caseId = created.caseId;
+    for (const status of ["ARCHIVED", "DRAFT"]) {
+      const response = await request.post(`/api/v1/cases/${caseId}/status`, { headers: EDITOR, data: { status, comment: "Restore round trip." } });
+      expect(response.status()).toBe(200);
+    }
+
+    await openCase(page, caseId);
+    await expect(page.getByRole("heading", { name: /Review the evidence package/i })).toBeVisible();
+    await expect(page.locator("#stale-snapshot-notice")).toHaveCount(0);
+    await page.getByRole("button", { name: /Submit for review/i }).click();
+    await expect(page.locator(".wizard-status-row .pill")).toHaveText(/ready for review/i);
   });
 });
