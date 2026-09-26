@@ -230,6 +230,12 @@ export async function transitionStatus(caseId: string, target: CaseStatus, actor
 
 export async function duplicateCase(caseId: string, actor: Actor) {
   const source = await getCase(caseId);
+  const sourceCostsSaved = source.auditEvents.some(
+    (event) => event.action === "COSTS_SAVED",
+  );
+  const sourceIncomeSaved = source.auditEvents.some(
+    (event) => event.action === "INCOME_SAVED",
+  );
   const duplicate = await createCase(`${source.costingCase.platformName} — copy`, source.costingCase.pricingPeriod, actor);
   const targetId = duplicate.costingCase.id;
   const mapped = new Map<string, string>();
@@ -245,6 +251,8 @@ export async function duplicateCase(caseId: string, actor: Actor) {
   if (source.income.length) await db.insert(incomeLines).values(source.income.map((item) => ({ ...item, id: uid(), caseId: targetId })));
   if (source.capacity.length) await db.insert(capacityPlans).values(source.capacity.map((item) => ({ ...item, id: uid(), caseId: targetId, capabilityId: mapped.get(item.capabilityId)! })));
   if (source.proposedRates.length) await db.insert(proposedRates).values(source.proposedRates.map((item) => ({ ...item, id: uid(), caseId: targetId, capabilityId: mapped.get(item.capabilityId)! })));
+  if (sourceCostsSaved) await addAudit(targetId, actor, "COSTS_SAVED", `Copied ${source.costs.length} operating cost lines from duplicated case.`);
+  if (sourceIncomeSaved) await addAudit(targetId, actor, "INCOME_SAVED", `Copied ${source.income.length} non-variable income lines from duplicated case.`);
   await addAudit(targetId, actor, "CASE_DUPLICATED", `Duplicated from ${source.costingCase.platformName}; snapshots were intentionally not copied.`);
   return getCase(targetId);
 }
