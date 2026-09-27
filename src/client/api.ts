@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useSyncExternalStore } from "react";
 import type { ActorRole } from "@/src/modules/types";
 
 /**
@@ -8,20 +8,50 @@ import type { ActorRole } from "@/src/modules/types";
  * The role persists across page navigation and refreshes using localStorage.
  */
 
-export function useDemoRole() {
-  // Load the saved role, or default to Editor if none is valid.
-  const [role, setRoleState] = useState<ActorRole>(() => {
-    const storedRole = window.localStorage.getItem("ric-demo-role");
+const ROLE_KEY = "ric-demo-role";
+const ROLE_EVENT = "ric-demo-role-change";
+
+function readStoredRole(): ActorRole {
+  try {
+    const storedRole = window.localStorage.getItem(ROLE_KEY);
 
     return storedRole === "EDITOR" || storedRole === "REVIEWER"
       ? storedRole
       : "EDITOR";
-  });
+  } catch {
+    return "EDITOR";
+  }
+}
 
-  // Update both localStorage and the current React state.
+function subscribeToRole(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  window.addEventListener(ROLE_EVENT, onChange);
+
+  return () => {
+    window.removeEventListener("storage", onChange);
+    window.removeEventListener(ROLE_EVENT, onChange);
+  };
+}
+
+/**
+ * Stores and retrieves the selected demo role.
+ * The server defaults to Editor while the browser restores the saved role.
+ */
+export function useDemoRole() {
+  const role = useSyncExternalStore(
+    subscribeToRole,
+    readStoredRole,
+    () => "EDITOR" as ActorRole,
+  );
+
   const setRole = (next: ActorRole) => {
-    window.localStorage.setItem("ric-demo-role", next);
-    setRoleState(next);
+    try {
+      window.localStorage.setItem(ROLE_KEY, next);
+    } catch {
+      // Ignore storage failures so the page can continue rendering.
+    }
+
+    window.dispatchEvent(new Event(ROLE_EVENT));
   };
 
   return [role, setRole] as const;

@@ -325,3 +325,164 @@ test.describe("Issue #6 – core costing workflow", () => {
     });
   });
 });
+
+test.describe("Issue #35 – demo role persistence", () => {
+  let caseId = "";
+
+  test.afterEach(async ({ request }) => {
+    if (!caseId) return;
+
+    // Keep automated test cases out of the active dashboard.
+    await request.post(`/api/v1/cases/${caseId}/status`, {
+      headers: { "x-demo-role": "EDITOR" },
+      data: {
+        status: "ARCHIVED",
+        comment: "Archived by Issue #35 E2E teardown.",
+      },
+    });
+
+    caseId = "";
+  });
+
+  test("Reviewer persists across reload and navigation", async ({
+    page,
+    request,
+  }) => {
+    const caseName = `Role Persistence QA ${Date.now()}`;
+
+    // Create a case through the API for this test.
+    const createResponse = await request.post("/api/v1/cases", {
+      headers: { "x-demo-role": "EDITOR" },
+      data: {
+        platformName: caseName,
+        pricingPeriod: "2027–2029",
+      },
+    });
+
+    expect(createResponse.status()).toBe(201);
+
+    const created = await createResponse.json();
+    caseId = created.case.costingCase.id;
+
+    // Wait for the client-side dashboard load as well as the server response.
+    const casesResponsePromise = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/v1/cases" &&
+        response.request().method() === "GET",
+    );
+
+    const dashboardResponse = await page.goto("/");
+
+    expect(dashboardResponse?.status()).toBe(200);
+
+    const casesResponse = await casesResponsePromise;
+    expect(casesResponse.status()).toBe(200);
+
+    const editorButton = page.getByRole("button", {
+      name: "Editor",
+      exact: true,
+    });
+
+    const reviewerButton = page.getByRole("button", {
+      name: "Reviewer",
+      exact: true,
+    });
+
+    // A fresh browser context should start as Editor.
+    await expect(editorButton).toHaveClass(/selected/);
+    await expect(reviewerButton).not.toHaveClass(/selected/);
+
+    // Switching role causes the dashboard to reload its data as Reviewer.
+    const reviewerCasesResponsePromise = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname === "/api/v1/cases" &&
+        response.request().method() === "GET" &&
+        response.request().headers()["x-demo-role"] === "REVIEWER",
+    );
+
+    await reviewerButton.click();
+
+    const reviewerCasesResponse = await reviewerCasesResponsePromise;
+    expect(reviewerCasesResponse.status()).toBe(200);
+
+    await expect(reviewerButton).toHaveClass(/selected/);
+    await expect(editorButton).not.toHaveClass(/selected/);
+
+    // Reviewer should survive a reload.
+    const reloadResponse = await page.reload();
+
+    expect(reloadResponse?.status()).toBe(200);
+
+    await expect(
+      page.getByRole("button", {
+        name: "Reviewer",
+        exact: true,
+      }),
+    ).toHaveClass(/selected/);
+
+    // Open the case directly and verify the server response too.
+    const caseResponse = await page.goto(`/cases/${caseId}`);
+
+    expect(caseResponse?.status()).toBe(200);
+
+    await expect(
+      page.getByRole("heading", {
+        name: caseName,
+        level: 1,
+      }),
+    ).toBeVisible();
+
+    // Reviewer must still be selected on the case page.
+    await expect(
+      page.getByRole("button", {
+        name: "Reviewer",
+        exact: true,
+      }),
+    ).toHaveClass(/selected/);
+
+    // Navigate back to the dashboard normally.
+    await page
+      .getByRole("link", { name: /All cases/i })
+      .click();
+
+    await expect(
+      page.getByRole("heading", {
+        name: /Transparent pricing/i,
+      }),
+    ).toBeVisible();
+
+    // Reviewer must still be selected after navigation.
+    await expect(
+      page.getByRole("button", {
+        name: "Reviewer",
+        exact: true,
+      }),
+    ).toHaveClass(/selected/);
+  });
+
+  test("invalid stored role falls back to Editor", async ({ page }) => {
+    // Pretend localStorage contains an invalid role.
+    await page.addInitScript(() => {
+      window.localStorage.setItem("ric-demo-role", "garbage");
+    });
+
+    const response = await page.goto("/");
+
+    expect(response?.status()).toBe(200);
+
+    // Invalid stored values should safely fall back to Editor.
+    await expect(
+      page.getByRole("button", {
+        name: "Editor",
+        exact: true,
+      }),
+    ).toHaveClass(/selected/);
+
+    await expect(
+      page.getByRole("button", {
+        name: "Reviewer",
+        exact: true,
+      }),
+    ).not.toHaveClass(/selected/);
+  });
+});
