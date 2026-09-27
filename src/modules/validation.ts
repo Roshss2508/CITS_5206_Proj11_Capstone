@@ -63,6 +63,8 @@ export const incomeSchema = z.object({
   })).max(100),
 });
 
+export const step2Schema = costsSchema.extend({ income: incomeSchema.shape.income });
+
 export const capacitySchema = z.object({
   capacity: z.array(z.object({
     id: id.optional(),

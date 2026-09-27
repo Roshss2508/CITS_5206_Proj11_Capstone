@@ -7,6 +7,7 @@ All financial values are JSON strings such as `"202.50"`. Demo write requests us
 | GET/POST | `/api/v1/cases` | Any / Editor | List or create cases |
 | GET/PATCH | `/api/v1/cases/{id}` | Any / Editor | Read aggregate (including `snapshotFreshness`) or update header |
 | PUT | `/api/v1/cases/{id}/capabilities` | Editor | Replace the ordered capability set |
+| PUT | `/api/v1/cases/{id}/step-2` | Editor | Replace costs and income together in one atomic save |
 | PUT | `/api/v1/cases/{id}/costs` | Editor | Replace operating cost lines |
 | PUT | `/api/v1/cases/{id}/income` | Editor | Replace non-variable income lines |
 | PUT | `/api/v1/cases/{id}/capacity` | Editor | Replace capacity plans |
@@ -19,6 +20,12 @@ All financial values are JSON strings such as `"202.50"`. Demo write requests us
 | GET | `/api/health` | Any | Service health response |
 
 Error responses use `{ "error": string, "issues"?: ZodIssue[] }`. Responses carrying case data use `Cache-Control: no-store`.
+
+## Step 2 saves
+
+The wizard sends `{ "costs": [...], "income": [...] }` to `PUT /api/v1/cases/{id}/step-2`. Both arrays are required and may be empty. The server validates both before writing, then replaces the two collections, updates the case step and timestamp, and records the existing cost and income audit actions in one D1 transactional batch. If any statement fails, all of those changes roll back. The response remains `{ "case": CostingCaseAggregate }`.
+
+The separate `/costs` and `/income` routes remain available for existing clients. Each route now performs its own replacement, case update and audit write atomically. Clients that need the entire Step 2 form saved together should use `/step-2`.
 
 ## Snapshot freshness
 

@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { ensureDatabase, getDb } from "@/db";
 import {
   actors,
@@ -158,30 +159,64 @@ export async function saveCapabilities(caseId: string, input: Array<Omit<Capabil
   return getCase(caseId);
 }
 
-export async function saveCosts(caseId: string, rows: Array<Omit<CostLine, "caseId" | "id"> & { id?: string }>, actor: Actor) {
+type CostInput = Array<Omit<CostLine, "caseId" | "id"> & { id?: string }>;
+type IncomeInput = Array<Omit<IncomeLine, "caseId" | "id"> & { id?: string }>;
+
+// D1 batch runs these statements as one transaction. A failed insert rolls back
+// the deletions, case timestamp and audit events along with the other inserts.
+async function replaceStep2Rows(caseId: string, input: { costs?: CostInput; income?: IncomeInput }, actor: Actor) {
   await ensureDatabase();
   await assertEditable(caseId);
-  await assertCapabilitiesBelongToCase(
-    caseId,
-    rows.flatMap((row) => row.capabilityId ? [row.capabilityId] : []),
-  );
+  if (input.costs) {
+    await assertCapabilitiesBelongToCase(
+      caseId,
+      input.costs.flatMap((row) => row.capabilityId ? [row.capabilityId] : []),
+    );
+  }
   const db = getDb();
-  await db.delete(costLines).where(eq(costLines.caseId, caseId));
-  if (rows.length) await db.insert(costLines).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId })));
-  await touchCase(caseId, 3);
-  await addAudit(caseId, actor, "COSTS_SAVED", `Saved ${rows.length} operating cost lines.`);
+  const timestamp = now();
+  const statements: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
+    db.update(costingCases).set({ currentStep: 3, updatedAt: timestamp }).where(eq(costingCases.id, caseId)),
+  ];
+
+  if (input.costs) {
+    statements.push(db.delete(costLines).where(eq(costLines.caseId, caseId)));
+    if (input.costs.length) {
+      statements.push(db.insert(costLines).values(input.costs.map((row) => ({ ...row, id: row.id || uid(), caseId }))));
+    }
+    statements.push(db.insert(auditEvents).values({
+      id: uid(), caseId, actorId: actor.id, action: "COSTS_SAVED",
+      details: `Saved ${input.costs.length} operating cost lines.`,
+      fromStatus: null, toStatus: null, createdAt: timestamp,
+    }));
+  }
+
+  if (input.income) {
+    statements.push(db.delete(incomeLines).where(eq(incomeLines.caseId, caseId)));
+    if (input.income.length) {
+      statements.push(db.insert(incomeLines).values(input.income.map((row) => ({ ...row, id: row.id || uid(), caseId }))));
+    }
+    statements.push(db.insert(auditEvents).values({
+      id: uid(), caseId, actorId: actor.id, action: "INCOME_SAVED",
+      details: `Saved ${input.income.length} non-variable income lines.`,
+      fromStatus: null, toStatus: null, createdAt: timestamp,
+    }));
+  }
+
+  await db.batch(statements);
   return getCase(caseId);
 }
 
-export async function saveIncome(caseId: string, rows: Array<Omit<IncomeLine, "caseId" | "id"> & { id?: string }>, actor: Actor) {
-  await ensureDatabase();
-  await assertEditable(caseId);
-  const db = getDb();
-  await db.delete(incomeLines).where(eq(incomeLines.caseId, caseId));
-  if (rows.length) await db.insert(incomeLines).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId })));
-  await touchCase(caseId, 3);
-  await addAudit(caseId, actor, "INCOME_SAVED", `Saved ${rows.length} non-variable income lines.`);
-  return getCase(caseId);
+export async function saveCosts(caseId: string, rows: CostInput, actor: Actor) {
+  return replaceStep2Rows(caseId, { costs: rows }, actor);
+}
+
+export async function saveIncome(caseId: string, rows: IncomeInput, actor: Actor) {
+  return replaceStep2Rows(caseId, { income: rows }, actor);
+}
+
+export async function saveCostsAndIncome(caseId: string, costs: CostInput, income: IncomeInput, actor: Actor) {
+  return replaceStep2Rows(caseId, { costs, income }, actor);
 }
 
 export async function saveCapacity(caseId: string, rows: Array<Omit<CapacityPlan, "caseId" | "id" | "historicYear1" | "historicYear2" | "historicYear3"> & { id?: string; historicYear1?: string | null; historicYear2?: string | null; historicYear3?: string | null }>, actor: Actor) {
