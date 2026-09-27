@@ -26,6 +26,7 @@ import type {
   CostingCaseAggregate,
   IncomeLine,
   ProposedRate,
+  SnapshotInputPayload,
 } from "@/src/modules/types";
 import { STALE_SNAPSHOT_MESSAGE, getSnapshotFreshness } from "@/src/modules/snapshotFreshness";
 
@@ -222,7 +223,7 @@ export async function createSnapshot(caseId: string, aggregate: CostingCaseAggre
       income: aggregate.income,
       capacity: aggregate.capacity,
       proposedRates: aggregate.proposedRates,
-    }),
+    } satisfies SnapshotInputPayload),
     outputJson: JSON.stringify(output),
     createdBy: actor.id,
     createdAt: output.calculatedAt,
