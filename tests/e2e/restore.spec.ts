@@ -86,3 +86,51 @@ test("an editor can restore an archived case without losing its snapshot", async
     data: { status: "ARCHIVED", comment: "Archived by automated E2E teardown." },
   });
 });
+
+test("the restore button prevents duplicate requests while restoration is in progress", async ({ page, request }) => {
+  const caseName = `QA Restore Guard ${Date.now()}`;
+  const { caseId } = await createCalculatedCase(request, caseName);
+
+  const archived = await request.post(`/api/v1/cases/${caseId}/status`, {
+    headers: EDITOR,
+    data: { status: "ARCHIVED", comment: "Archived for duplicate restore testing." },
+  });
+  expect(archived.status()).toBe(200);
+
+  let restoreRequests = 0;
+  await page.route(`**/api/v1/cases/${caseId}/status`, async (route) => {
+    const payload = route.request().postDataJSON() as { status?: string };
+    if (route.request().method() === "POST" && payload.status === "DRAFT") {
+      restoreRequests += 1;
+      await new Promise((resolve) => setTimeout(resolve, 400));
+    }
+    await route.continue();
+  });
+
+  await page.goto("/");
+  const caseCard = page.locator(".case-card").filter({ hasText: caseName });
+  const restoreButton = caseCard.getByRole("button", { name: "Restore case" });
+  await expect(restoreButton).toBeVisible();
+
+  const restoredResponse = page.waitForResponse((response) =>
+    response.url().includes(`/api/v1/cases/${caseId}/status`) && response.request().method() === "POST",
+  );
+
+  await restoreButton.evaluate((button: HTMLButtonElement) => {
+    button.click();
+    button.click();
+  });
+
+  const restoringButton = caseCard.getByRole("button", { name: "Restoring case" });
+  await expect(restoringButton).toBeDisabled();
+  await expect(restoringButton.locator(".spin")).toBeVisible();
+
+  expect((await restoredResponse).status()).toBe(200);
+  await expect(caseCard).toContainText("Draft");
+  expect(restoreRequests).toBe(1);
+
+  await request.post(`/api/v1/cases/${caseId}/status`, {
+    headers: EDITOR,
+    data: { status: "ARCHIVED", comment: "Archived by automated E2E teardown." },
+  });
+});

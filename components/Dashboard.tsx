@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Archive, ArchiveRestore, ArrowRight, Copy, FilePlus2, LoaderCircle, Plus, ShieldCheck } from "lucide-react";
 import { apiRequest, useDemoRole } from "@/src/client/api";
 import type { CostingCase, CostingCaseAggregate } from "@/src/modules/types";
@@ -24,6 +24,8 @@ export function Dashboard() {
   const [error, setError] = useState("");
   const [caseToArchive, setCaseToArchive] = useState<CostingCase | null>(null);
   const [archiving, setArchiving] = useState(false);
+  const restoringRef = useRef(new Set<string>());
+  const [restoringCaseId, setRestoringCaseId] = useState<string | null>(null);
 
   const loadCases = async () => {
     try {
@@ -83,10 +85,19 @@ export function Dashboard() {
   };
 
   const restore = async (id: string) => {
+    if (restoringRef.current.has(id)) return;
+    restoringRef.current.add(id);
+    setRestoringCaseId(id);
+
     try {
       await apiRequest(`/api/v1/cases/${id}/status`, role, { method: "POST", body: JSON.stringify({ status: "DRAFT", comment: "Restored from the case dashboard." }) });
       await loadCases();
-    } catch (caught) { setError(caught instanceof Error ? caught.message : "Unable to restore the case."); }
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Unable to restore the case.");
+    } finally {
+      restoringRef.current.delete(id);
+      setRestoringCaseId((current) => current === id ? null : current);
+    }
   };
 
   return (
@@ -130,7 +141,7 @@ export function Dashboard() {
                     <a className="button primary compact" href={`/cases/${item.id}`}>Open case <ArrowRight size={16} /></a>
                     {role === "EDITOR" && item.status !== "ARCHIVED" && <button aria-label="Duplicate case" className="icon-button" onClick={() => duplicate(item.id)} title="Duplicate" type="button"><Copy size={17} /></button>}
                     {role === "EDITOR" && item.status !== "ARCHIVED" && <button aria-label="Archive case" className="icon-button" onClick={() => setCaseToArchive(item)} title="Archive" type="button"><Archive size={17} /></button>}
-                    {role === "EDITOR" && item.status === "ARCHIVED" && <button aria-label="Restore case" className="icon-button" onClick={() => restore(item.id)} title="Restore" type="button"><ArchiveRestore size={17} /></button>}
+                    {role === "EDITOR" && item.status === "ARCHIVED" && <button aria-label={restoringCaseId === item.id ? "Restoring case" : "Restore case"} className="icon-button" disabled={restoringCaseId === item.id} onClick={() => void restore(item.id)} title="Restore" type="button">{restoringCaseId === item.id ? <LoaderCircle className="spin" size={17} /> : <ArchiveRestore size={17} />}</button>}
                     
                   </div>
                 </article>
