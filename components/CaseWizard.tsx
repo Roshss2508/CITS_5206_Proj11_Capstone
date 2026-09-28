@@ -13,6 +13,7 @@ import type {
   CalculationResult, Capability, CapacityPlan, CostLine, CostingCaseAggregate,
   IncomeLine, ProposedRate,
 } from "@/src/modules/types";
+import { AuditHistoryList } from "@/components/AuditHistoryList";
 import { DemoRoleToggle } from "@/components/DemoRoleToggle";
 import { ProductSidebar } from "@/components/ProductSidebar";
 
@@ -281,6 +282,6 @@ function StepReview({ aggregate, result, role, working, onStatus, onRecalculate 
       <div className="export-row"><a className="button primary" href={`/api/v1/cases/${aggregate.costingCase.id}/report.pdf?snapshot=${snapshot.id}`}><Download size={17} /> Download PDF</a><a className="button secondary" href={`/api/v1/cases/${aggregate.costingCase.id}/export.csv`}><FileSpreadsheet size={17} /> Export CSV</a></div>
     </>}
     <section className="approval-panel"><div><p className="page-kicker">APPROVAL GATE</p><h3>{aggregate.costingCase.status === "DRAFT" ? "Submit the evidence package" : aggregate.costingCase.status === "READY_FOR_REVIEW" ? "Reviewer decision required" : aggregate.costingCase.status === "APPROVED" ? "MVP case approved" : "Case archived"}</h3><p>This demonstration records workflow status; it does not replace UWA delegated-authority approval.</p></div><div className="button-row">{role === "EDITOR" && aggregate.costingCase.status === "DRAFT" && <button aria-describedby={stale ? "stale-snapshot-notice" : undefined} className="button primary" disabled={!snapshot || working || stale} onClick={() => onStatus("READY_FOR_REVIEW")} title={stale ? "Recalculate in Step 4 before submitting." : undefined} type="button"><Send size={17} /> Submit for review</button>}{role === "REVIEWER" && aggregate.costingCase.status === "READY_FOR_REVIEW" && <><button className="button ghost" disabled={working} onClick={() => onStatus("DRAFT")} type="button"><ChevronLeft size={17} /> Changes required</button><button className="button approve" disabled={working} onClick={() => onStatus("APPROVED")} type="button"><Check size={17} /> Approve case</button></>}</div></section>
-    <section className="audit-section" id="audit"><div className="subsection-heading"><div><h3>Audit history</h3><p>Newest event first.</p></div></div><div className="audit-list">{aggregate.auditEvents.map((event) => <div key={event.id}><span className="audit-dot" /><div><strong>{event.action.replaceAll("_", " ")}</strong><p>{event.details}</p></div><time>{new Date(event.createdAt).toLocaleString("en-AU")}</time></div>)}</div></section>
+    <AuditHistoryList events={aggregate.auditEvents} />
   </>;
 }
