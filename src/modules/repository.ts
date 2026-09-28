@@ -1,4 +1,5 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
+import type { BatchItem } from "drizzle-orm/batch";
 import { ensureDatabase, getDb } from "@/db";
 import {
   actors,
@@ -26,7 +27,9 @@ import type {
   CostingCaseAggregate,
   IncomeLine,
   ProposedRate,
+  SnapshotInputPayload,
 } from "@/src/modules/types";
+import { STALE_SNAPSHOT_MESSAGE, getSnapshotFreshness } from "@/src/modules/snapshotFreshness";
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
@@ -35,6 +38,23 @@ async function assertEditable(caseId: string) {
   const [row] = await getDb().select({ status: costingCases.status }).from(costingCases).where(eq(costingCases.id, caseId)).limit(1);
   if (!row) throw new Error("Costing case not found.");
   if (row.status !== "DRAFT") throw new Response("Submitted, approved and archived cases are read-only.", { status: 409 });
+}
+
+async function assertCapabilitiesBelongToCase(caseId: string, capabilityIds: string[]) {
+  const uniqueIds = [...new Set(capabilityIds)];
+  if (uniqueIds.length === 0) return;
+
+  const rows = await getDb()
+    .select({ id: capabilities.id })
+    .from(capabilities)
+    .where(and(eq(capabilities.caseId, caseId), inArray(capabilities.id, uniqueIds)));
+
+  if (rows.length !== uniqueIds.length) {
+    throw Response.json(
+      { error: "One or more capability IDs are invalid or do not belong to this costing case." },
+      { status: 400 },
+    );
+  }
 }
 
 async function touchCase(caseId: string, currentStep?: number) {
@@ -90,7 +110,7 @@ export async function getCase(caseId: string): Promise<CostingCaseAggregate> {
     db.select().from(calculationSnapshots).where(eq(calculationSnapshots.caseId, caseId)).orderBy(desc(calculationSnapshots.createdAt)),
     db.select().from(auditEvents).where(eq(auditEvents.caseId, caseId)).orderBy(desc(auditEvents.createdAt)),
   ]);
-  return {
+  const aggregate = {
     costingCase: costingCase as CostingCase,
     capabilities: caseCapabilities as Capability[],
     costs: costs as CostLine[],
@@ -101,6 +121,7 @@ export async function getCase(caseId: string): Promise<CostingCaseAggregate> {
     snapshots: snapshots as CalculationSnapshot[],
     auditEvents: events as AuditEvent[],
   };
+  return { ...aggregate, snapshotFreshness: getSnapshotFreshness(aggregate) };
 }
 
 export async function updateCase(caseId: string, values: Partial<Pick<CostingCase, "platformName" | "pricingPeriod" | "currentStep">>, actor: Actor) {
@@ -139,31 +160,70 @@ export async function saveCapabilities(caseId: string, input: Array<Omit<Capabil
   return getCase(caseId);
 }
 
-export async function saveCosts(caseId: string, rows: Array<Omit<CostLine, "caseId" | "id"> & { id?: string }>, actor: Actor) {
+type CostInput = Array<Omit<CostLine, "caseId" | "id"> & { id?: string }>;
+type IncomeInput = Array<Omit<IncomeLine, "caseId" | "id"> & { id?: string }>;
+
+// D1 batch runs these statements as one transaction. A failed insert rolls back
+// the deletions, case timestamp and audit events along with the other inserts.
+async function replaceStep2Rows(caseId: string, input: { costs?: CostInput; income?: IncomeInput }, actor: Actor) {
   await ensureDatabase();
   await assertEditable(caseId);
+  if (input.costs) {
+    await assertCapabilitiesBelongToCase(
+      caseId,
+      input.costs.flatMap((row) => row.capabilityId ? [row.capabilityId] : []),
+    );
+  }
   const db = getDb();
-  await db.delete(costLines).where(eq(costLines.caseId, caseId));
-  if (rows.length) await db.insert(costLines).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId })));
-  await touchCase(caseId, 3);
-  await addAudit(caseId, actor, "COSTS_SAVED", `Saved ${rows.length} operating cost lines.`);
+  const timestamp = now();
+  const statements: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
+    db.update(costingCases).set({ currentStep: 3, updatedAt: timestamp }).where(eq(costingCases.id, caseId)),
+  ];
+
+  if (input.costs) {
+    statements.push(db.delete(costLines).where(eq(costLines.caseId, caseId)));
+    if (input.costs.length) {
+      statements.push(db.insert(costLines).values(input.costs.map((row) => ({ ...row, id: row.id || uid(), caseId }))));
+    }
+    statements.push(db.insert(auditEvents).values({
+      id: uid(), caseId, actorId: actor.id, action: "COSTS_SAVED",
+      details: `Saved ${input.costs.length} operating cost lines.`,
+      fromStatus: null, toStatus: null, createdAt: timestamp,
+    }));
+  }
+
+  if (input.income) {
+    statements.push(db.delete(incomeLines).where(eq(incomeLines.caseId, caseId)));
+    if (input.income.length) {
+      statements.push(db.insert(incomeLines).values(input.income.map((row) => ({ ...row, id: row.id || uid(), caseId }))));
+    }
+    statements.push(db.insert(auditEvents).values({
+      id: uid(), caseId, actorId: actor.id, action: "INCOME_SAVED",
+      details: `Saved ${input.income.length} non-variable income lines.`,
+      fromStatus: null, toStatus: null, createdAt: timestamp,
+    }));
+  }
+
+  await db.batch(statements);
   return getCase(caseId);
 }
 
-export async function saveIncome(caseId: string, rows: Array<Omit<IncomeLine, "caseId" | "id"> & { id?: string }>, actor: Actor) {
-  await ensureDatabase();
-  await assertEditable(caseId);
-  const db = getDb();
-  await db.delete(incomeLines).where(eq(incomeLines.caseId, caseId));
-  if (rows.length) await db.insert(incomeLines).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId })));
-  await touchCase(caseId, 3);
-  await addAudit(caseId, actor, "INCOME_SAVED", `Saved ${rows.length} non-variable income lines.`);
-  return getCase(caseId);
+export async function saveCosts(caseId: string, rows: CostInput, actor: Actor) {
+  return replaceStep2Rows(caseId, { costs: rows }, actor);
+}
+
+export async function saveIncome(caseId: string, rows: IncomeInput, actor: Actor) {
+  return replaceStep2Rows(caseId, { income: rows }, actor);
+}
+
+export async function saveCostsAndIncome(caseId: string, costs: CostInput, income: IncomeInput, actor: Actor) {
+  return replaceStep2Rows(caseId, { costs, income }, actor);
 }
 
 export async function saveCapacity(caseId: string, rows: Array<Omit<CapacityPlan, "caseId" | "id" | "historicYear1" | "historicYear2" | "historicYear3"> & { id?: string; historicYear1?: string | null; historicYear2?: string | null; historicYear3?: string | null }>, actor: Actor) {
   await ensureDatabase();
   await assertEditable(caseId);
+  await assertCapabilitiesBelongToCase(caseId, rows.map((row) => row.capabilityId));
   const db = getDb();
   await db.delete(capacityPlans).where(eq(capacityPlans.caseId, caseId));
   await db.insert(capacityPlans).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId, historicYear1: row.historicYear1 || null, historicYear2: row.historicYear2 || null, historicYear3: row.historicYear3 || null })));
@@ -175,6 +235,7 @@ export async function saveCapacity(caseId: string, rows: Array<Omit<CapacityPlan
 export async function saveProposedRates(caseId: string, rows: Array<Omit<ProposedRate, "caseId" | "id" | "uwaRate" | "apfrRate" | "commercialRate"> & { id?: string; uwaRate?: string | null; apfrRate?: string | null; commercialRate?: string | null }>, actor: Actor) {
   await ensureDatabase();
   await assertEditable(caseId);
+  await assertCapabilitiesBelongToCase(caseId, rows.map((row) => row.capabilityId));
   const db = getDb();
   await db.delete(proposedRates).where(eq(proposedRates.caseId, caseId));
   await db.insert(proposedRates).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId, uwaRate: row.uwaRate || null, apfrRate: row.apfrRate || null, commercialRate: row.commercialRate || null })));
@@ -197,7 +258,7 @@ export async function createSnapshot(caseId: string, aggregate: CostingCaseAggre
       income: aggregate.income,
       capacity: aggregate.capacity,
       proposedRates: aggregate.proposedRates,
-    }),
+    } satisfies SnapshotInputPayload),
     outputJson: JSON.stringify(output),
     createdBy: actor.id,
     createdAt: output.calculatedAt,
@@ -212,7 +273,7 @@ const ALLOWED_TRANSITIONS: Record<CaseStatus, CaseStatus[]> = {
   DRAFT: ["READY_FOR_REVIEW", "ARCHIVED"],
   READY_FOR_REVIEW: ["DRAFT", "APPROVED", "ARCHIVED"],
   APPROVED: ["ARCHIVED"],
-  ARCHIVED: [],
+  ARCHIVED: ["DRAFT"],
 };
 
 export async function transitionStatus(caseId: string, target: CaseStatus, actor: Actor, comment: string) {
@@ -222,7 +283,9 @@ export async function transitionStatus(caseId: string, target: CaseStatus, actor
   if (target === "APPROVED" && actor.role !== "REVIEWER") throw new Response("Only the reviewer can approve a case.", { status: 403 });
   if (target === "READY_FOR_REVIEW" && actor.role !== "EDITOR") throw new Response("Only the editor can submit a draft.", { status: 403 });
   if (target === "ARCHIVED" && actor.role !== "EDITOR") throw new Response("Only the editor can archive a case.", { status: 403 });
+  if (current === "ARCHIVED" && target === "DRAFT" && actor.role !== "EDITOR") throw new Response("Only the editor can restore an archived case.", { status: 403 });
   if ((target === "READY_FOR_REVIEW" || target === "APPROVED") && aggregate.snapshots.length === 0) throw new Response("Create a calculation snapshot before submitting or approving the case.", { status: 409 });
+  if ((target === "READY_FOR_REVIEW" || target === "APPROVED") && aggregate.snapshotFreshness === "STALE") throw new Response(STALE_SNAPSHOT_MESSAGE, { status: 409 });
   await getDb().update(costingCases).set({ status: target, updatedAt: now() }).where(eq(costingCases.id, caseId));
   await addAudit(caseId, actor, "STATUS_CHANGED", comment || `Changed status from ${current} to ${target}.`, current, target);
   return getCase(caseId);
@@ -230,6 +293,12 @@ export async function transitionStatus(caseId: string, target: CaseStatus, actor
 
 export async function duplicateCase(caseId: string, actor: Actor) {
   const source = await getCase(caseId);
+  const sourceCostsSaved = source.auditEvents.some(
+    (event) => event.action === "COSTS_SAVED",
+  );
+  const sourceIncomeSaved = source.auditEvents.some(
+    (event) => event.action === "INCOME_SAVED",
+  );
   const duplicate = await createCase(`${source.costingCase.platformName} — copy`, source.costingCase.pricingPeriod, actor);
   const targetId = duplicate.costingCase.id;
   const mapped = new Map<string, string>();
@@ -245,6 +314,8 @@ export async function duplicateCase(caseId: string, actor: Actor) {
   if (source.income.length) await db.insert(incomeLines).values(source.income.map((item) => ({ ...item, id: uid(), caseId: targetId })));
   if (source.capacity.length) await db.insert(capacityPlans).values(source.capacity.map((item) => ({ ...item, id: uid(), caseId: targetId, capabilityId: mapped.get(item.capabilityId)! })));
   if (source.proposedRates.length) await db.insert(proposedRates).values(source.proposedRates.map((item) => ({ ...item, id: uid(), caseId: targetId, capabilityId: mapped.get(item.capabilityId)! })));
+  if (sourceCostsSaved) await addAudit(targetId, actor, "COSTS_SAVED", `Copied ${source.costs.length} operating cost lines from duplicated case.`);
+  if (sourceIncomeSaved) await addAudit(targetId, actor, "INCOME_SAVED", `Copied ${source.income.length} non-variable income lines from duplicated case.`);
   await addAudit(targetId, actor, "CASE_DUPLICATED", `Duplicated from ${source.costingCase.platformName}; snapshots were intentionally not copied.`);
   return getCase(targetId);
 }

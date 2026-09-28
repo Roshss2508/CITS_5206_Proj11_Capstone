@@ -112,6 +112,12 @@ export interface CalculationSnapshot {
   createdAt: string;
 }
 
+/** The shape persisted in a `CalculationSnapshot.inputJson`: case state frozen at snapshot time. */
+export type SnapshotInputPayload = Pick<
+  CostingCaseAggregate,
+  "costingCase" | "capabilities" | "costs" | "income" | "capacity" | "proposedRates"
+>;
+
 export interface AuditEvent {
   id: string;
   caseId: string;
@@ -123,6 +129,8 @@ export interface AuditEvent {
   createdAt: string;
 }
 
+export type SnapshotFreshness = "NONE" | "CURRENT" | "STALE";
+
 export interface CostingCaseAggregate {
   costingCase: CostingCase;
   capabilities: Capability[];
@@ -132,6 +140,8 @@ export interface CostingCaseAggregate {
   proposedRates: ProposedRate[];
   benchmarks: Benchmark[];
   snapshots: CalculationSnapshot[];
+  /** Whether the newest snapshot still matches the case's calculation inputs. */
+  snapshotFreshness: SnapshotFreshness;
   auditEvents: AuditEvent[];
 }
 

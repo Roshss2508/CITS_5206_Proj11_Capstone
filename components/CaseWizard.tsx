@@ -13,6 +13,7 @@ import type {
   CalculationResult, Capability, CapacityPlan, CostLine, CostingCaseAggregate,
   IncomeLine, ProposedRate,
 } from "@/src/modules/types";
+import { AuditHistoryList } from "@/components/AuditHistoryList";
 import { DemoRoleToggle } from "@/components/DemoRoleToggle";
 import { ProductSidebar } from "@/components/ProductSidebar";
 
@@ -41,24 +42,54 @@ export function CaseWizard({ caseId }: { caseId: string }) {
   const hydrate = (data: CostingCaseAggregate) => {
     setAggregate(data);
     setCapabilities(data.capabilities);
-    setCosts(data.costs.length ? data.costs : [
-      { id: blankId(), caseId, capabilityId: null, category: "STAFFING", scope: "PLATFORM", label: "Platform staffing", amount: "50000", justification: "Synthetic annual staffing allocation used for the MVP demonstration." },
-      { id: blankId(), caseId, capabilityId: data.capabilities[0]?.id || null, category: "MAINTENANCE", scope: "CAPABILITY", label: "Annual maintenance", amount: "100000", justification: "Synthetic service-contract estimate based on the reference case." },
-    ]);
-    setIncome(data.income.length ? data.income : [
-      { id: blankId(), caseId, sourceName: "UWA in-kind support", sourceType: "UWA_SUPPORT", amount: "20000", justification: "Synthetic UWA contribution for the reference calculation." },
-      { id: blankId(), caseId, sourceName: "WA Government support", sourceType: "NON_UWA_SUPPORT", amount: "30000", justification: "Synthetic recurrent non-UWA operating support." },
-    ]);
+
+    const costsSaved = data.auditEvents.some(
+      (event) => event.action === "COSTS_SAVED",
+    );
+
+    const incomeSaved = data.auditEvents.some(
+      (event) => event.action === "INCOME_SAVED",
+    );
+
+    setCosts(data.costs.length ? data.costs : !costsSaved ? [
+      {
+        id: blankId(), caseId, capabilityId: null, category: "STAFFING",
+        scope: "PLATFORM", label: "Platform staffing", amount: "50000",
+        justification: "Synthetic annual staffing allocation used for the MVP demonstration.",
+      },
+      {
+        id: blankId(), caseId, capabilityId: data.capabilities[0]?.id || null,
+        category: "MAINTENANCE", scope: "CAPABILITY", label: "Annual maintenance",
+        amount: "100000",
+        justification: "Synthetic service-contract estimate based on the reference case.",
+      },
+    ] : []);
+
+    setIncome(data.income.length ? data.income : !incomeSaved ? [
+      {
+        id: blankId(), caseId, sourceName: "UWA in-kind support",
+        sourceType: "UWA_SUPPORT", amount: "20000",
+        justification: "Synthetic UWA contribution for the reference calculation.",
+      },
+      {
+        id: blankId(), caseId, sourceName: "WA Government support",
+        sourceType: "NON_UWA_SUPPORT", amount: "30000",
+        justification: "Synthetic recurrent non-UWA operating support.",
+      },
+    ] : []);
+
     setCapacity(data.capabilities.map((item) => data.capacity.find((row) => row.capabilityId === item.id) || {
       id: blankId(), caseId, capabilityId: item.id, maximumCapacity: "1000", forecastUtilisationPct: "100",
       historicYear1: null, historicYear2: null, historicYear3: null,
       justification: "Synthetic forecast based on available capacity and expected demand.",
     }));
+
     setRates(data.capabilities.map((item) => data.proposedRates.find((row) => row.capabilityId === item.id) || {
       id: blankId(), caseId, capabilityId: item.id, uwaRate: null, apfrRate: null, commercialRate: null,
       uwaSharePct: "60", apfrSharePct: "25", commercialSharePct: "15",
       justification: "Initial scenario uses the calculated sustainable rates and expected user mix.",
     }));
+    
     const latest = data.snapshots[0];
     setResult(latest ? JSON.parse(latest.outputJson) as CalculationResult : null);
     setStep(Math.max(1, Math.min(5, data.costingCase.currentStep)));
@@ -85,12 +116,19 @@ export function CaseWizard({ caseId }: { caseId: string }) {
       let response: { case: CostingCaseAggregate } | null = null;
       if (target === 1) response = await request(`/api/v1/cases/${caseId}/capabilities`, { capabilities: capabilities.map((item, index) => ({ id: item.id, name: item.name, billableUnit: item.billableUnit, active: item.active, displayOrder: index })) });
       if (target === 2) {
-        await request(`/api/v1/cases/${caseId}/costs`, { costs: costs.map((item) => ({ id: item.id, capabilityId: item.capabilityId, category: item.category, scope: item.scope, label: item.label, amount: item.amount, justification: item.justification })) });
-        response = await request(`/api/v1/cases/${caseId}/income`, { income: income.map((item) => ({ id: item.id, sourceName: item.sourceName, sourceType: item.sourceType, amount: item.amount, justification: item.justification })) });
+        response = await request(`/api/v1/cases/${caseId}/step-2`, {
+          costs: costs.map((item) => ({ id: item.id, capabilityId: item.capabilityId, category: item.category, scope: item.scope, label: item.label, amount: item.amount, justification: item.justification })),
+          income: income.map((item) => ({ id: item.id, sourceName: item.sourceName, sourceType: item.sourceType, amount: item.amount, justification: item.justification })),
+        });
       }
       if (target === 3) response = await request(`/api/v1/cases/${caseId}/capacity`, { capacity: capacity.map((item) => ({ id: item.id, capabilityId: item.capabilityId, maximumCapacity: item.maximumCapacity, forecastUtilisationPct: item.forecastUtilisationPct, historicYear1: item.historicYear1, historicYear2: item.historicYear2, historicYear3: item.historicYear3, justification: item.justification })) });
       if (target === 4) response = await request(`/api/v1/cases/${caseId}/proposed-rates`, { proposedRates: rates.map((item) => ({ id: item.id, capabilityId: item.capabilityId, uwaRate: item.uwaRate, apfrRate: item.apfrRate, commercialRate: item.commercialRate, uwaSharePct: item.uwaSharePct, apfrSharePct: item.apfrSharePct, commercialSharePct: item.commercialSharePct, justification: item.justification })) });
-      if (response && !silent) hydrate(response.case);
+      if (response) {
+        // Silent saves (autosave, Back) must not reset the form, but they can still change
+        // whether the latest snapshot is stale, so keep the server-side aggregate in sync.
+        if (silent) setAggregate(response.case);
+        else hydrate(response.case);
+      }
       setSaveState("All changes saved");
       setError("");
       return true;
@@ -153,8 +191,14 @@ export function CaseWizard({ caseId }: { caseId: string }) {
       setWorking(true);
       const response = await request<{ case: CostingCaseAggregate }>(`/api/v1/cases/${caseId}/status`, { status, comment: status === "APPROVED" ? "Approved after review of the immutable calculation snapshot." : status === "DRAFT" ? "Returned for changes after review." : "Submitted for client review." }, "POST");
       hydrate(response.case);
-    } catch (caught) { setError(describeError(caught, "Unable to change case status.")); }
-    finally { setWorking(false); }
+    } catch (caught) {
+      setError(describeError(caught, "Unable to change case status."));
+      // The server may know something this page does not (for example inputs changed in another tab).
+      try {
+        const refreshed = await apiRequest<{ case: CostingCaseAggregate }>(`/api/v1/cases/${caseId}`, role);
+        setAggregate(refreshed.case);
+      } catch { /* keep the original error message */ }
+    } finally { setWorking(false); }
   };
 
   if (loading) return <main className="loading-screen"><LoaderCircle className="spin" /> Loading the costing case…</main>;
@@ -188,8 +232,8 @@ export function CaseWizard({ caseId }: { caseId: string }) {
           {step === 1 && <StepCapabilities items={capabilities} readOnly={readOnly} onAdd={addCapability} onChange={(items) => { setCapabilities(items); markDirty(); }} />}
           {step === 2 && <StepCostsIncome capabilities={capabilities} costs={costs} income={income} readOnly={readOnly} onCosts={(items) => { setCosts(items); markDirty(); }} onIncome={(items) => { setIncome(items); markDirty(); }} />}
           {step === 3 && <StepCapacity capabilities={capabilities} items={capacity} readOnly={readOnly} onChange={(items) => { setCapacity(items); markDirty(); }} />}
-          {step === 4 && <StepRates capabilities={capabilities} items={rates} result={result} readOnly={readOnly} working={working} onChange={(items) => { setRates(items); markDirty(); }} onCalculate={() => void calculate()} />}
-          {step === 5 && <StepReview aggregate={aggregate} result={result} role={role} working={working} onStatus={changeStatus} />}
+          {step === 4 && <StepRates capabilities={capabilities} items={rates} result={result} stale={aggregate.snapshotFreshness === "STALE"} readOnly={readOnly} working={working} onChange={(items) => { setRates(items); markDirty(); }} onCalculate={() => void calculate()} />}
+          {step === 5 && <StepReview aggregate={aggregate} result={result} role={role} working={working} onStatus={changeStatus} onRecalculate={() => void goTo(4)} />}
         </section>
 
         <footer className="wizard-footer">
@@ -222,10 +266,10 @@ function StepCostsIncome({ capabilities, costs, income, readOnly, onCosts, onInc
   return <>
     <SectionIntro kicker="STEP 2" title="Capture full operating costs and recurrent support" copy="Record every annual cost needed to operate the service. User fees are deliberately excluded from non-variable operating income." />
     <div className="subsection-heading"><div><h3>Operating costs</h3><p>Amounts are annual and GST exclusive.</p></div>{!readOnly && <button className="button secondary compact" onClick={() => onCosts([...costs, { id: blankId(), caseId: capabilities[0].caseId, capabilityId: capabilities[0].id, category: "OTHER", scope: "CAPABILITY", label: "New cost", amount: "0", justification: "Explain the evidence for this annual cost." }])} type="button"><Plus size={16} /> Add cost</button>}</div>
-    <div className="line-table"><div className="line-header"><span>Cost / category</span><span>Scope</span><span>Annual amount</span><span>Evidence and justification</span><span /></div>{costs.map((item, index) => <div className="line-row" key={item.id}><div><input aria-label="Cost label" disabled={readOnly} value={item.label} onChange={(event) => updateCost(index, { label: event.target.value })} /><select aria-label="Cost category" disabled={readOnly} value={item.category} onChange={(event) => updateCost(index, { category: event.target.value as CostLine["category"] })}><option value="STAFFING">Staffing</option><option value="MAINTENANCE">Maintenance</option><option value="MATERIALS">Materials</option><option value="SOFTWARE">Software</option><option value="UTILITIES">Utilities</option><option value="COMPLIANCE">Compliance</option><option value="REPLACEMENT_RESERVE">Replacement reserve</option><option value="OTHER">Other</option></select></div><div><select aria-label="Cost scope" disabled={readOnly} value={item.scope === "PLATFORM" ? "PLATFORM" : item.capabilityId || capabilities[0].id} onChange={(event) => updateCost(index, event.target.value === "PLATFORM" ? { scope: "PLATFORM", capabilityId: null } : { scope: "CAPABILITY", capabilityId: event.target.value })}><option value="PLATFORM">Whole platform</option>{capabilities.map((capability) => <option key={capability.id} value={capability.id}>{capability.name}</option>)}</select></div><label className="money-input"><span>$</span><input aria-label="Annual amount" disabled={readOnly} inputMode="decimal" value={item.amount} onChange={(event) => updateCost(index, { amount: event.target.value })} /></label><textarea aria-label="Cost justification" disabled={readOnly} value={item.justification} onChange={(event) => updateCost(index, { justification: event.target.value })} />{!readOnly && <button aria-label={`Remove ${item.label}`} className="icon-button danger" onClick={() => onCosts(costs.filter((_, i) => i !== index))} type="button"><Trash2 size={16} /></button>}</div>)}</div>
+    <div className="line-table"><div className="line-header"><span>Cost / category</span><span>Scope</span><span>Annual amount</span><span>Evidence and justification</span><span /></div>{costs.length === 0 ? <div className="line-empty"><strong>No operating costs added.</strong>{!readOnly && <span>Use Add cost to add an annual operating cost.</span>}</div> : costs.map((item, index) => <div className="line-row" key={item.id}><div><input aria-label="Cost label" disabled={readOnly} value={item.label} onChange={(event) => updateCost(index, { label: event.target.value })} /><select aria-label="Cost category" disabled={readOnly} value={item.category} onChange={(event) => updateCost(index, { category: event.target.value as CostLine["category"] })}><option value="STAFFING">Staffing</option><option value="MAINTENANCE">Maintenance</option><option value="MATERIALS">Materials</option><option value="SOFTWARE">Software</option><option value="UTILITIES">Utilities</option><option value="COMPLIANCE">Compliance</option><option value="REPLACEMENT_RESERVE">Replacement reserve</option><option value="OTHER">Other</option></select></div><div><select aria-label="Cost scope" disabled={readOnly} value={item.scope === "PLATFORM" ? "PLATFORM" : item.capabilityId || capabilities[0].id} onChange={(event) => updateCost(index, event.target.value === "PLATFORM" ? { scope: "PLATFORM", capabilityId: null } : { scope: "CAPABILITY", capabilityId: event.target.value })}><option value="PLATFORM">Whole platform</option>{capabilities.map((capability) => <option key={capability.id} value={capability.id}>{capability.name}</option>)}</select></div><label className="money-input"><span>$</span><input aria-label="Annual amount" disabled={readOnly} inputMode="decimal" value={item.amount} onChange={(event) => updateCost(index, { amount: event.target.value })} /></label><textarea aria-label="Cost justification" disabled={readOnly} value={item.justification} onChange={(event) => updateCost(index, { justification: event.target.value })} />{!readOnly && <button aria-label={`Remove ${item.label}`} className="icon-button danger" onClick={() => onCosts(costs.filter((_, i) => i !== index))} type="button"><Trash2 size={16} /></button>}</div>)}</div>
 
     <div className="subsection-heading separated"><div><h3>Non-variable operating income</h3><p>Recurrent support only — never include user fees.</p></div>{!readOnly && <button className="button secondary compact" onClick={() => onIncome([...income, { id: blankId(), caseId: capabilities[0].caseId, sourceName: "New support source", sourceType: "UWA_SUPPORT", amount: "0", justification: "Explain why this support is expected to recur." }])} type="button"><Plus size={16} /> Add income</button>}</div>
-    <div className="line-table income"><div className="line-header"><span>Source</span><span>Classification</span><span>Annual amount</span><span>Evidence and justification</span><span /></div>{income.map((item, index) => <div className="line-row" key={item.id}><input aria-label="Income source" disabled={readOnly} value={item.sourceName} onChange={(event) => updateIncome(index, { sourceName: event.target.value })} /><select aria-label="Income classification" disabled={readOnly} value={item.sourceType} onChange={(event) => updateIncome(index, { sourceType: event.target.value as IncomeLine["sourceType"] })}><option value="UWA_SUPPORT">UWA support</option><option value="NON_UWA_SUPPORT">Non-UWA support</option></select><label className="money-input"><span>$</span><input aria-label="Annual income amount" disabled={readOnly} inputMode="decimal" value={item.amount} onChange={(event) => updateIncome(index, { amount: event.target.value })} /></label><textarea aria-label="Income justification" disabled={readOnly} value={item.justification} onChange={(event) => updateIncome(index, { justification: event.target.value })} />{!readOnly && <button aria-label={`Remove ${item.sourceName}`} className="icon-button danger" onClick={() => onIncome(income.filter((_, i) => i !== index))} type="button"><Trash2 size={16} /></button>}</div>)}</div>
+    <div className="line-table income"><div className="line-header"><span>Source</span><span>Classification</span><span>Annual amount</span><span>Evidence and justification</span><span /></div>{income.length === 0 ? <div className="line-empty"><strong>No non-variable operating income added.</strong>{!readOnly && <span>Use Add income to add recurrent operating support.</span>}</div> : income.map((item, index) => <div className="line-row" key={item.id}><input aria-label="Income source" disabled={readOnly} value={item.sourceName} onChange={(event) => updateIncome(index, { sourceName: event.target.value })} /><select aria-label="Income classification" disabled={readOnly} value={item.sourceType} onChange={(event) => updateIncome(index, { sourceType: event.target.value as IncomeLine["sourceType"] })}><option value="UWA_SUPPORT">UWA support</option><option value="NON_UWA_SUPPORT">Non-UWA support</option></select><label className="money-input"><span>$</span><input aria-label="Annual income amount" disabled={readOnly} inputMode="decimal" value={item.amount} onChange={(event) => updateIncome(index, { amount: event.target.value })} /></label><textarea aria-label="Income justification" disabled={readOnly} value={item.justification} onChange={(event) => updateIncome(index, { justification: event.target.value })} />{!readOnly && <button aria-label={`Remove ${item.sourceName}`} className="icon-button danger" onClick={() => onIncome(income.filter((_, i) => i !== index))} type="button"><Trash2 size={16} /></button>}</div>)}</div>
   </>;
 }
 
@@ -238,13 +282,13 @@ function StepCapacity({ capabilities, items, readOnly, onChange }: { capabilitie
   </>;
 }
 
-function StepRates({ capabilities, items, result, readOnly, working, onChange, onCalculate }: { capabilities: Capability[]; items: ProposedRate[]; result: CalculationResult | null; readOnly: boolean; working: boolean; onChange: (items: ProposedRate[]) => void; onCalculate: () => void }) {
+function StepRates({ capabilities, items, result, stale, readOnly, working, onChange, onCalculate }: { capabilities: Capability[]; items: ProposedRate[]; result: CalculationResult | null; stale: boolean; readOnly: boolean; working: boolean; onChange: (items: ProposedRate[]) => void; onCalculate: () => void }) {
   const update = (index: number, patch: Partial<ProposedRate>) => onChange(items.map((item, i) => i === index ? { ...item, ...patch } : item));
   return <>
     <SectionIntro kicker="STEP 4" title="Compare sustainable rates with a practical pricing scenario" copy="Leave a proposed rate blank to use the calculated minimum. Adjust rates and user mix to understand the effect on annual platform recovery." />
-    {!result ? <div className="calculation-empty"><CircleDollarSign size={34} /><h3>Run the first calculation</h3><p>The engine will validate every input and save an immutable RIC Formula V1 snapshot.</p>{!readOnly && <button className="button primary" disabled={working} onClick={onCalculate} type="button">{working ? <LoaderCircle className="spin" size={17} /> : <CircleDollarSign size={17} />} Calculate sustainable rates</button>}</div> : <FinancialSummary result={result} />}
+    {!result ? <div className="calculation-empty"><CircleDollarSign size={34} /><h3>Run the first calculation</h3><p>The engine will validate every input and save an immutable RIC Formula V1 snapshot.</p>{!readOnly && <button className="button primary" disabled={working} onClick={onCalculate} type="button">{working ? <LoaderCircle className="spin" size={17} /> : <CircleDollarSign size={17} />} Calculate sustainable rates</button>}</div> : <>{stale && <div className="notice warning" role="status"><AlertTriangle size={18} /><span><strong>These figures are out of date.</strong> Case inputs changed after this calculation, so the results below come from the previous snapshot. Recalculate to create a new snapshot before submitting for review.</span></div>}<FinancialSummary result={result} /></>}
     <div className="rates-stack">{capabilities.map((capability, index) => { const item = items.find((row) => row.capabilityId === capability.id) || items[index]; const calculated = result?.capabilities.find((row) => row.capabilityId === capability.id); return <article className="rate-card" key={capability.id}><div className="rate-card-heading"><div><p className="page-kicker">PRICING SCENARIO</p><h3>{capability.name}</h3></div><span>per {capability.billableUnit.toLowerCase()}</span></div><div className="rate-columns"><RateInput label="UWA researcher" calculated={calculated?.sustainableRates.UWA} disabled={readOnly} value={item?.uwaRate || ""} share={item?.uwaSharePct || ""} onRate={(value) => update(index, { uwaRate: value || null })} onShare={(value) => update(index, { uwaSharePct: value })} /><RateInput label="APFR" calculated={calculated?.sustainableRates.APFR} disabled={readOnly} value={item?.apfrRate || ""} share={item?.apfrSharePct || ""} onRate={(value) => update(index, { apfrRate: value || null })} onShare={(value) => update(index, { apfrSharePct: value })} /><RateInput label="Commercial" calculated={calculated?.sustainableRates.COMMERCIAL} disabled={readOnly} value={item?.commercialRate || ""} share={item?.commercialSharePct || ""} onRate={(value) => update(index, { commercialRate: value || null })} onShare={(value) => update(index, { commercialSharePct: value })} /></div><label>Pricing justification<textarea disabled={readOnly} value={item?.justification || ""} onChange={(event) => update(index, { justification: event.target.value })} /></label></article>; })}</div>
-    {!readOnly && result && <div className="calculate-bar"><div><strong>Ready to refresh the scenario?</strong><span>Recalculating creates a new immutable snapshot; the previous snapshot stays available in Step 5.</span></div><button className="button primary" disabled={working} onClick={onCalculate} type="button">{working ? <LoaderCircle className="spin" size={17} /> : <CircleDollarSign size={17} />} Recalculate & save new snapshot</button></div>}
+    {!readOnly && result && <div className="calculate-bar"><div><strong>{stale ? "Recalculation required" : "Ready to refresh the scenario?"}</strong><span>{stale ? "Inputs changed since the last calculation. Recalculating creates a new immutable snapshot; the previous snapshot stays available." : "Recalculating creates a new immutable snapshot; the previous snapshot stays available in Step 5."}</span></div><button className="button primary" disabled={working} onClick={onCalculate} type="button">{working ? <LoaderCircle className="spin" size={17} /> : <CircleDollarSign size={17} />} Recalculate & save new snapshot</button></div>}
   </>;
 }
 
@@ -256,16 +300,18 @@ function FinancialSummary({ result }: { result: CalculationResult }) {
   return <div className="financial-summary"><div><span>Gross user revenue</span><strong>{money(result.grossRevenue)}</strong></div><div><span>University overhead</span><strong>{money(result.universityOverhead)}</strong></div><div><span>Net platform recovery</span><strong>{money(result.netPlatformRecovery)}</strong></div><div className={Number(result.operatingBalance) >= 0 ? "positive" : "negative"}><span>Operating balance</span><strong>{money(result.operatingBalance)}</strong></div>{result.warnings.length > 0 && <p><AlertTriangle size={16} /> {result.warnings.join(" ")}</p>}</div>;
 }
 
-function StepReview({ aggregate, result, role, working, onStatus }: { aggregate: CostingCaseAggregate; result: CalculationResult | null; role: "EDITOR" | "REVIEWER"; working: boolean; onStatus: (status: string) => void }) {
+function StepReview({ aggregate, result, role, working, onStatus, onRecalculate }: { aggregate: CostingCaseAggregate; result: CalculationResult | null; role: "EDITOR" | "REVIEWER"; working: boolean; onStatus: (status: string) => void; onRecalculate: () => void }) {
   const snapshot = aggregate.snapshots[0];
+  const stale = aggregate.snapshotFreshness === "STALE" && aggregate.costingCase.status === "DRAFT";
   return <>
     <SectionIntro kicker="STEP 5" title="Review the evidence package" copy="The report is generated from an immutable calculation snapshot, so reviewers see exactly the inputs and formula that produced each result." />
     {!result || !snapshot ? <div className="notice warning"><AlertTriangle size={18} /> Return to Step 4 and create a calculation snapshot before review.</div> : <>
+      {stale && <div className="notice warning" id="stale-snapshot-notice" role="status"><AlertTriangle size={18} /><span><strong>Recalculation required.</strong> Case inputs changed after the latest snapshot was calculated, so the figures below are out of date and the case cannot be submitted. {role === "EDITOR" ? <button className="button secondary compact" onClick={onRecalculate} type="button">Go to Step 4 to recalculate</button> : "The editor needs to recalculate it."}</span></div>}
       <FinancialSummary result={result} />
-      <div className="review-grid"><article className="review-card"><FileCheck2 size={22} /><h3>Snapshot ready</h3><p>{snapshot.formulaVersion.replaceAll("_", " ")} · {new Date(snapshot.createdAt).toLocaleString("en-AU")}</p><strong>{result.capabilities.length} capabilities</strong></article><article className="review-card"><ShieldCheck size={22} /><h3>Audit evidence</h3><p>All status changes and calculations are recorded without storing request payloads in the audit log.</p><strong>{aggregate.auditEvents.length} recorded events</strong></article></div>
+      <div className="review-grid"><article className="review-card"><FileCheck2 size={22} /><h3>{stale ? "Snapshot out of date" : "Snapshot ready"}</h3><p>{snapshot.formulaVersion.replaceAll("_", " ")} · {new Date(snapshot.createdAt).toLocaleString("en-AU")}</p><strong>{result.capabilities.length} capabilities</strong></article><article className="review-card"><ShieldCheck size={22} /><h3>Audit evidence</h3><p>All status changes and calculations are recorded without storing request payloads in the audit log.</p><strong>{aggregate.auditEvents.length} recorded events</strong></article></div>
       <div className="export-row"><a className="button primary" href={`/api/v1/cases/${aggregate.costingCase.id}/report.pdf?snapshot=${snapshot.id}`}><Download size={17} /> Download PDF</a><a className="button secondary" href={`/api/v1/cases/${aggregate.costingCase.id}/export.csv`}><FileSpreadsheet size={17} /> Export CSV</a></div>
     </>}
-    <section className="approval-panel"><div><p className="page-kicker">APPROVAL GATE</p><h3>{aggregate.costingCase.status === "DRAFT" ? "Submit the evidence package" : aggregate.costingCase.status === "READY_FOR_REVIEW" ? "Reviewer decision required" : aggregate.costingCase.status === "APPROVED" ? "MVP case approved" : "Case archived"}</h3><p>This demonstration records workflow status; it does not replace UWA delegated-authority approval.</p></div><div className="button-row">{role === "EDITOR" && aggregate.costingCase.status === "DRAFT" && <button className="button primary" disabled={!snapshot || working} onClick={() => onStatus("READY_FOR_REVIEW")} type="button"><Send size={17} /> Submit for review</button>}{role === "REVIEWER" && aggregate.costingCase.status === "READY_FOR_REVIEW" && <><button className="button ghost" disabled={working} onClick={() => onStatus("DRAFT")} type="button"><ChevronLeft size={17} /> Changes required</button><button className="button approve" disabled={working} onClick={() => onStatus("APPROVED")} type="button"><Check size={17} /> Approve case</button></>}</div></section>
-    <section className="audit-section" id="audit"><div className="subsection-heading"><div><h3>Audit history</h3><p>Newest event first.</p></div></div><div className="audit-list">{aggregate.auditEvents.map((event) => <div key={event.id}><span className="audit-dot" /><div><strong>{event.action.replaceAll("_", " ")}</strong><p>{event.details}</p></div><time>{new Date(event.createdAt).toLocaleString("en-AU")}</time></div>)}</div></section>
+    <section className="approval-panel"><div><p className="page-kicker">APPROVAL GATE</p><h3>{aggregate.costingCase.status === "DRAFT" ? "Submit the evidence package" : aggregate.costingCase.status === "READY_FOR_REVIEW" ? "Reviewer decision required" : aggregate.costingCase.status === "APPROVED" ? "MVP case approved" : "Case archived"}</h3><p>This demonstration records workflow status; it does not replace UWA delegated-authority approval.</p></div><div className="button-row">{role === "EDITOR" && aggregate.costingCase.status === "DRAFT" && <button aria-describedby={stale ? "stale-snapshot-notice" : undefined} className="button primary" disabled={!snapshot || working || stale} onClick={() => onStatus("READY_FOR_REVIEW")} title={stale ? "Recalculate in Step 4 before submitting." : undefined} type="button"><Send size={17} /> Submit for review</button>}{role === "REVIEWER" && aggregate.costingCase.status === "READY_FOR_REVIEW" && <><button className="button ghost" disabled={working} onClick={() => onStatus("DRAFT")} type="button"><ChevronLeft size={17} /> Changes required</button><button className="button approve" disabled={working} onClick={() => onStatus("APPROVED")} type="button"><Check size={17} /> Approve case</button></>}</div></section>
+    <AuditHistoryList events={aggregate.auditEvents} />
   </>;
 }

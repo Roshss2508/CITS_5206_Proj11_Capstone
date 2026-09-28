@@ -9,6 +9,10 @@ export function ProductSidebar({ active = "cases" }: { active?: "cases" | "rules
   // From an open case, carry the case path along so Business Rules can send the user back to it
   // rather than defaulting to the dashboard.
   const rulesHref = pathname?.startsWith("/cases/") ? `/business-rules?from=${encodeURIComponent(pathname)}` : "/business-rules";
+  // Audit history is always case-specific: from an open case, link straight to its audit trail;
+  // otherwise land on a page that lets the user pick which case's trail to view.
+  const caseId = pathname?.match(/^\/cases\/([^/]+)/)?.[1];
+  const auditHref = caseId ? `/cases/${caseId}/audit` : "/audit";
   return (
     <aside className="product-sidebar">
       <a className="product-brand" href="/">
@@ -18,7 +22,7 @@ export function ProductSidebar({ active = "cases" }: { active?: "cases" | "rules
       <nav aria-label="Primary navigation">
         <a className={active === "cases" ? "active" : ""} href="/"><LayoutDashboard size={18} /> Costing cases</a>
         <a className={active === "rules" ? "active" : ""} href={rulesHref}><Calculator size={18} /> Business rules</a>
-        <a className={active === "audit" ? "active" : ""} href="#audit"><ClipboardCheck size={18} /> Audit history</a>
+        <a className={active === "audit" ? "active" : ""} href={auditHref}><ClipboardCheck size={18} /> Audit history</a>
       </nav>
       <div className="sidebar-guidance">
         <BookOpenText size={18} />

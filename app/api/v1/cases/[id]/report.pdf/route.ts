@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { jsonError } from "@/src/modules/api";
+import { parseSnapshotInput, resolveExportSnapshot } from "@/src/modules/exportSnapshot";
 import { wrapPdfText } from "@/src/modules/pdfText";
 import { getCase } from "@/src/modules/repository";
 import type { CalculationResult } from "@/src/modules/types";
@@ -15,9 +16,10 @@ export async function GET(request: Request, context: Context) {
   try {
     const aggregate = await getCase((await context.params).id);
     const requested = new URL(request.url).searchParams.get("snapshot");
-    const snapshot = requested ? aggregate.snapshots.find((item) => item.id === requested) : aggregate.snapshots[0];
+    const snapshot = resolveExportSnapshot(aggregate.snapshots, requested);
     if (!snapshot) return Response.json({ error: "Create a calculation snapshot before exporting a report." }, { status: 409 });
     const result = JSON.parse(snapshot.outputJson) as CalculationResult;
+    const input = parseSnapshotInput(snapshot);
     const document = await PDFDocument.create();
     const regular = await document.embedFont(StandardFonts.Helvetica);
     const bold = await document.embedFont(StandardFonts.HelveticaBold);
@@ -42,9 +44,9 @@ export async function GET(request: Request, context: Context) {
       }
     };
     line("RESEARCH INFRASTRUCTURE COSTING & PRICING", undefined, true);
-    line(aggregate.costingCase.platformName, undefined, true);
-    line("Pricing period", aggregate.costingCase.pricingPeriod);
-    line("Case status", aggregate.costingCase.status);
+    line(input.costingCase.platformName, undefined, true);
+    line("Pricing period", input.costingCase.pricingPeriod);
+    line("Case status", input.costingCase.status);
     line("Formula version", snapshot.formulaVersion);
     line("Snapshot created", new Date(snapshot.createdAt).toLocaleString("en-AU"));
     y -= 10;
@@ -69,11 +71,11 @@ export async function GET(request: Request, context: Context) {
       result.warnings.forEach((warning, index) => line(`${index + 1}`, warning));
     }
     y -= 12; line("ASSUMPTIONS & EVIDENCE", undefined, true);
-    aggregate.costs.forEach((item) => line(item.label, `${item.justification} ($${item.amount})`));
-    aggregate.capacity.forEach((item) => line("Utilisation", item.justification));
-    aggregate.proposedRates.forEach((item) => line("Proposed rates", item.justification));
+    input.costs.forEach((item) => line(item.label, `${item.justification} ($${item.amount})`));
+    input.capacity.forEach((item) => line("Utilisation", item.justification));
+    input.proposedRates.forEach((item) => line("Proposed rates", item.justification));
     const bytes = await document.save();
-    const filename = aggregate.costingCase.platformName.replace(/[^a-z0-9-_]+/gi, "-").replace(/^-|-$/g, "").slice(0, 60) || "ric-case";
+    const filename = input.costingCase.platformName.replace(/[^a-z0-9-_]+/gi, "-").replace(/^-|-$/g, "").slice(0, 60) || "ric-case";
     return new Response(bytes.buffer as ArrayBuffer, { headers: { "Content-Type": "application/pdf", "Content-Disposition": `attachment; filename="${filename}-snapshot.pdf"`, "Cache-Control": "private, no-store" } });
   } catch (error) { return jsonError(error); }
 }
