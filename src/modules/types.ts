@@ -112,6 +112,12 @@ export interface CalculationSnapshot {
   createdAt: string;
 }
 
+/** The shape persisted in a `CalculationSnapshot.inputJson`: case state frozen at snapshot time. */
+export type SnapshotInputPayload = Pick<
+  CostingCaseAggregate,
+  "costingCase" | "capabilities" | "costs" | "income" | "capacity" | "proposedRates"
+>;
+
 export interface AuditEvent {
   id: string;
   caseId: string;
