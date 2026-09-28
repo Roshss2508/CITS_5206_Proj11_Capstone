@@ -122,10 +122,11 @@ test.describe("Issue #30 – stale snapshots block submission", () => {
     expect(await response.text()).toMatch(/Create a calculation snapshot/i);
   });
 
-  test("restoring an archived case keeps its snapshot current, and editing it afterwards makes it stale", async ({ request }) => {
+  test("Issue #39 – a restored case must be recalculated after an input change before it can be submitted", async ({ request }) => {
     const created = await createCalculatedCase(request);
     caseId = created.caseId;
     const before = await getCase(request, caseId);
+    const originalSnapshot = before.snapshots[0];
 
     const archived = await request.post(`/api/v1/cases/${caseId}/status`, { headers: EDITOR, data: { status: "ARCHIVED", comment: "Archived for restore test." } });
     expect(archived.status()).toBe(200);
@@ -139,7 +140,27 @@ test.describe("Issue #30 – stale snapshots block submission", () => {
 
     await saveInputs(request, caseId, { ...created.inputs, costAmount: "31000" });
     expect((await getCase(request, caseId)).snapshotFreshness).toBe("STALE");
-    expect((await submit(request, caseId)).status()).toBe(409);
+
+    const blocked = await submit(request, caseId);
+    expect(blocked.status()).toBe(409);
+    expect(await blocked.text()).toMatch(/recalculate/i);
+    expect((await getCase(request, caseId)).costingCase.status).toBe("DRAFT");
+
+    const recalculated = await request.post(`/api/v1/cases/${caseId}/calculate`, { headers: EDITOR });
+    expect(recalculated.status()).toBe(201);
+    const newSnapshotId = (await recalculated.json()).snapshot.id as string;
+    expect(newSnapshotId).not.toBe(originalSnapshot.id);
+
+    const afterRecalculation = await getCase(request, caseId);
+    expect(afterRecalculation.snapshotFreshness).toBe("CURRENT");
+    expect(afterRecalculation.snapshots).toHaveLength(before.snapshots.length + 1);
+    expect(afterRecalculation.snapshots.map((snapshot: { id: string }) => snapshot.id)).toEqual(
+      expect.arrayContaining([originalSnapshot.id, newSnapshotId]),
+    );
+
+    const submitted = await submit(request, caseId);
+    expect(submitted.status()).toBe(200);
+    expect((await getCase(request, caseId)).costingCase.status).toBe("READY_FOR_REVIEW");
   });
 
   test("returning a submitted case to draft and editing it makes the old snapshot stale", async ({ request }) => {
