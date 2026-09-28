@@ -85,8 +85,10 @@ export function CaseWizard({ caseId }: { caseId: string }) {
       let response: { case: CostingCaseAggregate } | null = null;
       if (target === 1) response = await request(`/api/v1/cases/${caseId}/capabilities`, { capabilities: capabilities.map((item, index) => ({ id: item.id, name: item.name, billableUnit: item.billableUnit, active: item.active, displayOrder: index })) });
       if (target === 2) {
-        await request(`/api/v1/cases/${caseId}/costs`, { costs: costs.map((item) => ({ id: item.id, capabilityId: item.capabilityId, category: item.category, scope: item.scope, label: item.label, amount: item.amount, justification: item.justification })) });
-        response = await request(`/api/v1/cases/${caseId}/income`, { income: income.map((item) => ({ id: item.id, sourceName: item.sourceName, sourceType: item.sourceType, amount: item.amount, justification: item.justification })) });
+        response = await request(`/api/v1/cases/${caseId}/step-2`, {
+          costs: costs.map((item) => ({ id: item.id, capabilityId: item.capabilityId, category: item.category, scope: item.scope, label: item.label, amount: item.amount, justification: item.justification })),
+          income: income.map((item) => ({ id: item.id, sourceName: item.sourceName, sourceType: item.sourceType, amount: item.amount, justification: item.justification })),
+        });
       }
       if (target === 3) response = await request(`/api/v1/cases/${caseId}/capacity`, { capacity: capacity.map((item) => ({ id: item.id, capabilityId: item.capabilityId, maximumCapacity: item.maximumCapacity, forecastUtilisationPct: item.forecastUtilisationPct, historicYear1: item.historicYear1, historicYear2: item.historicYear2, historicYear3: item.historicYear3, justification: item.justification })) });
       if (target === 4) response = await request(`/api/v1/cases/${caseId}/proposed-rates`, { proposedRates: rates.map((item) => ({ id: item.id, capabilityId: item.capabilityId, uwaRate: item.uwaRate, apfrRate: item.apfrRate, commercialRate: item.commercialRate, uwaSharePct: item.uwaSharePct, apfrSharePct: item.apfrSharePct, commercialSharePct: item.commercialSharePct, justification: item.justification })) });
