@@ -127,4 +127,13 @@ test.describe("Issue #41 – PDF exports stay pinned to their persisted snapshot
     expect(historical, "the older snapshot's PDF must remain exactly as it was").toContain("SNAPSHOT_ONE_MARKER");
     expect(historical).not.toContain("SNAPSHOT_TWO_MARKER");
   });
+
+  test("returns 404 for a snapshot id that does not belong to the case", async ({ request }) => {
+    const created = await createCalculatedCase(request, "PDF_404_MARKER");
+    caseId = created.caseId;
+
+    const response = await request.get(`/api/v1/cases/${caseId}/report.pdf?snapshot=does-not-exist`);
+    expect(response.status()).toBe(404);
+    expect((await response.json()).error).toBe("Snapshot not found.");
+  });
 });
