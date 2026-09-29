@@ -52,19 +52,20 @@ The application will support:
 
 ## Project Status
 
-🚧 **Current Phase:** Development, Validation & Client Confirmation
+🚧 **Current Phase:** MVP Implementation, Integration & Validation
+
+The proposed MVP scope was formally reviewed and accepted by the client in Week 9.
 
 Current activities:
 
-- Developing and validating the current functional prototype
-- Reviewing business rules against client-provided documents
+- Completing the remaining client-approved MVP functionality
+- Integrating and validating frontend and backend contributions
 - Validating calculations against the existing RIC Cost Calculator
 - Improving frontend validation and user workflow
-- Conducting QA and end-to-end testing
-- Managing development through GitHub Issues and Pull Requests
-- Awaiting formal client confirmation of the proposed MVP scope
-- Preparing for future standalone staging deployment
----
+- Conducting QA, regression and end-to-end testing
+- Managing development through GitHub Issues, Pull Requests and milestones
+- Resolving remaining implementation details that require clarification
+- Preparing for shared staging/live deployment and final integration
 
 ## Client Information
 
@@ -74,6 +75,24 @@ Current activities:
 
 ---
 
+## Client-Approved MVP Scope
+
+The proposed Minimum Viable Product scope was formally reviewed and accepted by the client in Week 9.
+
+The approved MVP covers the core end-to-end Research Infrastructure costing and pricing workflow, including:
+
+- platform and capability setup;
+- operating costs and support income;
+- capacity and utilisation;
+- minimum sustainable charge-out rates;
+- pricing scenarios and decision support;
+- benchmarking support; and
+- review and supporting outputs.
+
+The approved MVP scope is now used as the reference for remaining implementation, testing and integration work.
+
+Some detailed implementation decisions may still require clarification and are tracked separately through the Business Rule Analysis, Requirements Traceability Matrix and GitHub Issues.
+
 ## License
 
 This repository is intended for educational purposes as part of the Software Engineering Capstone Project at The University of Western Australia.
@@ -82,12 +101,12 @@ This repository is intended for educational purposes as part of the Software Eng
 
 ## Research Infrastructure Costing & Pricing Tool
 
-A functional prototype designed to explore and validate a guided digital costing and pricing workflow for UWA Research Infrastructure custodians.
+A functional prototype designed to implement and validate a guided digital costing and pricing workflow for UWA Research Infrastructure custodians.
 
-The current prototype is based on the project brief, client-provided materials and the existing RIC Cost Calculator. The proposed MVP scope is currently awaiting formal client confirmation.
+The prototype is based on the project brief, client-provided materials and the existing RIC Cost Calculator. The proposed MVP scope was formally reviewed and accepted by the client in Week 9, and the approved scope now guides the remaining implementation, testing and integration work.
 
 ## Current Prototype Implementation
-The following functionality currently exists in the prototype. Some workflow features remain subject to client confirmation before being treated as final MVP requirements.
+The following functionality currently exists in the prototype and supports the client-approved MVP scope. Some detailed implementation decisions may still require clarification as the MVP is finalised.
 
 - Durable costing cases with a five-step guided workflow.
 - Dynamic management of 1–20 capabilities and hour/day/sample billing units.
@@ -95,9 +114,9 @@ The following functionality currently exists in the prototype. Some workflow fea
 - UWA and non-UWA recurrent operating support.
 - Versioned `RIC_FORMULA_V1` calculation engine using decimal arithmetic.
 - Proposed-rate scenarios with UWA/APFR/Commercial user mix.
-- Prototype support for calculation snapshots, audit events and role-based review status; final workflow requirements remain subject to client confirmation.
+- Prototype support for calculation snapshots, audit events and role-based review status, with detailed workflow behaviour continuing to be refined during final integration.
+- Demo Editor and Reviewer roles for workflow exploration; production UWA authentication and identity management remain outside the current prototype scope.
 - PDF and CSV exports generated from the latest snapshot.
-- Demo Editor and Reviewer roles for workflow exploration; final user roles and UWA authentication requirements remain subject to client confirmation.
 - D1/SQLite relational persistence for the hosted student demonstration.
 
 Only synthetic or anonymised data may be used in the public demonstration environment.
