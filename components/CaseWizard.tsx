@@ -9,8 +9,9 @@ import {
 } from "lucide-react";
 import { apiRequest, useDemoRole } from "@/src/client/api";
 import { describeError } from "@/src/client/errorMessages";
+import { getActorName } from "@/src/modules/auth";
 import type {
-  CalculationResult, Capability, CapacityPlan, CostLine, CostingCaseAggregate,
+  CalculationResult, CalculationSnapshot, Capability, CapacityPlan, CostLine, CostingCaseAggregate,
   IncomeLine, ProposedRate,
 } from "@/src/modules/types";
 import { AuditHistoryList } from "@/components/AuditHistoryList";
@@ -301,17 +302,34 @@ function FinancialSummary({ result }: { result: CalculationResult }) {
 }
 
 function StepReview({ aggregate, result, role, working, onStatus, onRecalculate }: { aggregate: CostingCaseAggregate; result: CalculationResult | null; role: "EDITOR" | "REVIEWER"; working: boolean; onStatus: (status: string) => void; onRecalculate: () => void }) {
-  const snapshot = aggregate.snapshots[0];
+  const snapshots = aggregate.snapshots;
+  const latest = snapshots[0];
   const stale = aggregate.snapshotFreshness === "STALE" && aggregate.costingCase.status === "DRAFT";
+  // Defaults to the latest snapshot, but lets the reviewer browse older ones without touching
+  // the live calculation used for the submit gate below (which always tracks `latest`). Step 5
+  // only mounts this component while `step === 5`, so leaving and returning to it (the only way
+  // `latest` changes while reviewing) naturally resets this to the newest snapshot again.
+  const [viewedId, setViewedId] = useState(latest?.id);
+  const viewed = snapshots.find((item) => item.id === viewedId) ?? latest;
+  const viewedResult = viewed ? JSON.parse(viewed.outputJson) as CalculationResult : null;
+  const viewingLatest = !viewed || viewed.id === latest?.id;
   return <>
     <SectionIntro kicker="STEP 5" title="Review the evidence package" copy="The report is generated from an immutable calculation snapshot, so reviewers see exactly the inputs and formula that produced each result." />
-    {!result || !snapshot ? <div className="notice warning"><AlertTriangle size={18} /> Return to Step 4 and create a calculation snapshot before review.</div> : <>
+    {!result || !latest ? <div className="notice warning"><AlertTriangle size={18} /> Return to Step 4 and create a calculation snapshot before review.</div> : <>
       {stale && <div className="notice warning" id="stale-snapshot-notice" role="status"><AlertTriangle size={18} /><span><strong>Recalculation required.</strong> Case inputs changed after the latest snapshot was calculated, so the figures below are out of date and the case cannot be submitted. {role === "EDITOR" ? <button className="button secondary compact" onClick={onRecalculate} type="button">Go to Step 4 to recalculate</button> : "The editor needs to recalculate it."}</span></div>}
-      <FinancialSummary result={result} />
-      <div className="review-grid"><article className="review-card"><FileCheck2 size={22} /><h3>{stale ? "Snapshot out of date" : "Snapshot ready"}</h3><p>{snapshot.formulaVersion.replaceAll("_", " ")} · {new Date(snapshot.createdAt).toLocaleString("en-AU")}</p><strong>{result.capabilities.length} capabilities</strong></article><article className="review-card"><ShieldCheck size={22} /><h3>Audit evidence</h3><p>All status changes and calculations are recorded without storing request payloads in the audit log.</p><strong>{aggregate.auditEvents.length} recorded events</strong></article></div>
-      <div className="export-row"><a className="button primary" href={`/api/v1/cases/${aggregate.costingCase.id}/report.pdf?snapshot=${snapshot.id}`}><Download size={17} /> Download PDF</a><a className="button secondary" href={`/api/v1/cases/${aggregate.costingCase.id}/export.csv`}><FileSpreadsheet size={17} /> Export CSV</a></div>
+      {snapshots.length > 1 && <SnapshotHistoryList onSelect={setViewedId} selectedId={viewed!.id} snapshots={snapshots} stale={stale} />}
+      {viewed && viewedResult && <>
+        {!viewingLatest && <div className="notice info" role="status"><FileCheck2 size={18} /> Viewing an earlier snapshot from {new Date(viewed.createdAt).toLocaleString("en-AU")} — not the current calculation.</div>}
+        <FinancialSummary result={viewedResult} />
+        <div className="review-grid"><article className="review-card"><FileCheck2 size={22} /><h3>{viewingLatest && stale ? "Snapshot out of date" : viewingLatest ? "Snapshot ready" : "Historical snapshot"}</h3><p>{viewed.formulaVersion.replaceAll("_", " ")} · {new Date(viewed.createdAt).toLocaleString("en-AU")} · {getActorName(viewed.createdBy)}</p><strong>{viewedResult.capabilities.length} capabilities</strong></article><article className="review-card"><ShieldCheck size={22} /><h3>Audit evidence</h3><p>All status changes and calculations are recorded without storing request payloads in the audit log.</p><strong>{aggregate.auditEvents.length} recorded events</strong></article></div>
+        <div className="export-row"><a className="button primary" href={`/api/v1/cases/${aggregate.costingCase.id}/report.pdf?snapshot=${viewed.id}`}><Download size={17} /> Download PDF</a><a className="button secondary" href={`/api/v1/cases/${aggregate.costingCase.id}/export.csv?snapshot=${viewed.id}`}><FileSpreadsheet size={17} /> Export CSV</a></div>
+      </>}
     </>}
-    <section className="approval-panel"><div><p className="page-kicker">APPROVAL GATE</p><h3>{aggregate.costingCase.status === "DRAFT" ? "Submit the evidence package" : aggregate.costingCase.status === "READY_FOR_REVIEW" ? "Reviewer decision required" : aggregate.costingCase.status === "APPROVED" ? "MVP case approved" : "Case archived"}</h3><p>This demonstration records workflow status; it does not replace UWA delegated-authority approval.</p></div><div className="button-row">{role === "EDITOR" && aggregate.costingCase.status === "DRAFT" && <button aria-describedby={stale ? "stale-snapshot-notice" : undefined} className="button primary" disabled={!snapshot || working || stale} onClick={() => onStatus("READY_FOR_REVIEW")} title={stale ? "Recalculate in Step 4 before submitting." : undefined} type="button"><Send size={17} /> Submit for review</button>}{role === "REVIEWER" && aggregate.costingCase.status === "READY_FOR_REVIEW" && <><button className="button ghost" disabled={working} onClick={() => onStatus("DRAFT")} type="button"><ChevronLeft size={17} /> Changes required</button><button className="button approve" disabled={working} onClick={() => onStatus("APPROVED")} type="button"><Check size={17} /> Approve case</button></>}</div></section>
+    <section className="approval-panel"><div><p className="page-kicker">APPROVAL GATE</p><h3>{aggregate.costingCase.status === "DRAFT" ? "Submit the evidence package" : aggregate.costingCase.status === "READY_FOR_REVIEW" ? "Reviewer decision required" : aggregate.costingCase.status === "APPROVED" ? "MVP case approved" : "Case archived"}</h3><p>This demonstration records workflow status; it does not replace UWA delegated-authority approval.</p></div><div className="button-row">{role === "EDITOR" && aggregate.costingCase.status === "DRAFT" && <button aria-describedby={stale ? "stale-snapshot-notice" : undefined} className="button primary" disabled={!latest || working || stale} onClick={() => onStatus("READY_FOR_REVIEW")} title={stale ? "Recalculate in Step 4 before submitting." : undefined} type="button"><Send size={17} /> Submit for review</button>}{role === "REVIEWER" && aggregate.costingCase.status === "READY_FOR_REVIEW" && <><button className="button ghost" disabled={working} onClick={() => onStatus("DRAFT")} type="button"><ChevronLeft size={17} /> Changes required</button><button className="button approve" disabled={working} onClick={() => onStatus("APPROVED")} type="button"><Check size={17} /> Approve case</button></>}</div></section>
     <AuditHistoryList events={aggregate.auditEvents} />
   </>;
+}
+
+function SnapshotHistoryList({ snapshots, selectedId, stale, onSelect }: { snapshots: CalculationSnapshot[]; selectedId: string; stale: boolean; onSelect: (id: string) => void }) {
+  return <section className="audit-section"><div className="subsection-heading"><div><h3>Snapshot history</h3><p>Newest first. Select one to preview its figures and export it.</p></div></div><div className="snapshot-list">{snapshots.map((item, index) => <button aria-pressed={item.id === selectedId} className={item.id === selectedId ? "active" : undefined} key={item.id} onClick={() => onSelect(item.id)} type="button"><span className="audit-dot" /><div><strong>{item.formulaVersion.replaceAll("_", " ")}{index === 0 && <span className="pill green">Latest</span>}{index === 0 && stale && <span className="pill amber">Needs recalculation</span>}</strong><p>Calculated by {getActorName(item.createdBy)}</p></div><time>{new Date(item.createdAt).toLocaleString("en-AU")}</time></button>)}</div></section>;
 }

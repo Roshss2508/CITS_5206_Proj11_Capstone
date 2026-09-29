@@ -1,5 +1,6 @@
 import { PDFDocument, StandardFonts, rgb } from "pdf-lib";
 import { jsonError } from "@/src/modules/api";
+import { getActorName } from "@/src/modules/auth";
 import { parseSnapshotInput, resolveExportSnapshot } from "@/src/modules/exportSnapshot";
 import { wrapPdfText } from "@/src/modules/pdfText";
 import { getCase } from "@/src/modules/repository";
@@ -16,6 +17,9 @@ export async function GET(request: Request, context: Context) {
   try {
     const aggregate = await getCase((await context.params).id);
     const requested = new URL(request.url).searchParams.get("snapshot");
+    if (requested && !aggregate.snapshots.some((item) => item.id === requested)) {
+      return Response.json({ error: "Snapshot not found." }, { status: 404 });
+    }
     const snapshot = resolveExportSnapshot(aggregate.snapshots, requested);
     if (!snapshot) return Response.json({ error: "Create a calculation snapshot before exporting a report." }, { status: 409 });
     const result = JSON.parse(snapshot.outputJson) as CalculationResult;
@@ -49,6 +53,7 @@ export async function GET(request: Request, context: Context) {
     line("Case status", input.costingCase.status);
     line("Formula version", snapshot.formulaVersion);
     line("Snapshot created", new Date(snapshot.createdAt).toLocaleString("en-AU"));
+    line("Created by", getActorName(snapshot.createdBy));
     y -= 10;
     line("PLATFORM SUMMARY", undefined, true);
     line("Gross user revenue", `$${result.grossRevenue}`);
