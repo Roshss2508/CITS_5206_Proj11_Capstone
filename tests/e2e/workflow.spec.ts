@@ -798,3 +798,131 @@ test.describe("Issue #35 – demo role persistence", () => {
     ).not.toHaveClass(/selected/);
   });
 });
+
+test.describe("Issue #47 – dirty state and autosave", () => {
+  let caseId = "";
+
+  test.afterEach(async ({ request }) => {
+    if (!caseId) return;
+
+    await request.post(`/api/v1/cases/${caseId}/status`, {
+      headers: { "x-demo-role": "EDITOR" },
+      data: {
+        status: "ARCHIVED",
+        comment: "Archived by Issue #47 E2E teardown.",
+      },
+    });
+
+    caseId = "";
+  });
+
+  test("successful autosave clears dirty state and does not repeat for unchanged data", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(60_000);
+
+    const caseName = `Autosave QA ${Date.now()}`;
+
+    // Create a fresh case for this test.
+    const createResponse = await request.post("/api/v1/cases", {
+      headers: { "x-demo-role": "EDITOR" },
+      data: {
+        platformName: caseName,
+        pricingPeriod: "2027–2029",
+      },
+    });
+
+    expect(createResponse.status()).toBe(201);
+
+    const created = await createResponse.json();
+    caseId = created.case.costingCase.id;
+
+    await page.goto(`/cases/${caseId}`);
+
+    await expect(
+      page.getByRole("heading", {
+        name: caseName,
+        level: 1,
+      }),
+    ).toBeVisible();
+
+    await expect(
+      page.getByText("All changes saved", { exact: true }),
+    ).toBeVisible();
+
+    let capabilitySaveCount = 0;
+
+    // Count every Step 1 save request.
+    page.on("request", (request) => {
+      const url = new URL(request.url());
+
+      if (
+        request.method() === "PUT" &&
+        url.pathname === `/api/v1/cases/${caseId}/capabilities`
+      ) {
+        capabilitySaveCount += 1;
+      }
+    });
+
+    const capabilityName = page.getByLabel("Capability name");
+
+    // First edit should make the form dirty and trigger one autosave.
+    const firstAutosave = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/v1/cases/${caseId}/capabilities` &&
+        response.request().method() === "PUT",
+    );
+
+    await capabilityName.fill("Autosave QA Service");
+
+    await expect(
+      page.getByText("Unsaved changes", { exact: true }),
+    ).toBeVisible();
+
+    const firstResponse = await firstAutosave;
+
+    expect(firstResponse.status()).toBe(200);
+
+    await expect(
+      page.getByText("All changes saved", { exact: true }),
+    ).toBeVisible();
+
+    expect(capabilitySaveCount).toBe(1);
+
+    // Waiting longer than the 1.4 second debounce must not cause another save.
+    await page.waitForTimeout(2500);
+
+    expect(capabilitySaveCount).toBe(1);
+
+    // Editing again should mark the form dirty again and trigger one new save.
+    const secondAutosave = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/v1/cases/${caseId}/capabilities` &&
+        response.request().method() === "PUT",
+    );
+
+    await capabilityName.fill("Autosave QA Service Updated");
+
+    await expect(
+      page.getByText("Unsaved changes", { exact: true }),
+    ).toBeVisible();
+
+    const secondResponse = await secondAutosave;
+
+    expect(secondResponse.status()).toBe(200);
+
+    await expect(
+      page.getByText("All changes saved", { exact: true }),
+    ).toBeVisible();
+
+    expect(capabilitySaveCount).toBe(2);
+
+    // Again, unchanged data must not trigger another autosave.
+    await page.waitForTimeout(2500);
+
+    expect(capabilitySaveCount).toBe(2);
+  });
+});

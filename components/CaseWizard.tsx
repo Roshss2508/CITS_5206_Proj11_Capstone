@@ -37,6 +37,7 @@ export function CaseWizard({ caseId }: { caseId: string }) {
   const [error, setError] = useState("");
   const [saveState, setSaveState] = useState("All changes saved");
   const [dirtyVersion, setDirtyVersion] = useState(0);
+  const dirtyVersionRef = useRef(0);
   const loadedRef = useRef(false);
 
   const hydrate = (data: CostingCaseAggregate) => {
@@ -97,19 +98,20 @@ export function CaseWizard({ caseId }: { caseId: string }) {
 
   useEffect(() => {
     apiRequest<{ case: CostingCaseAggregate }>(`/api/v1/cases/${caseId}`, role)
-      .then(({ case: data }) => { hydrate(data); loadedRef.current = true; setError(""); })
+      .then(({ case: data }) => { hydrate(data); dirtyVersionRef.current = 0; setDirtyVersion(0); setSaveState("All changes saved"); loadedRef.current = true; setError(""); })
       .catch((caught) => setError(describeError(caught, "Unable to load this case.")))
       .finally(() => setLoading(false));
   // The aggregate hydrator intentionally owns all related form state.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [caseId, role]);
 
-  const markDirty = () => { setSaveState("Unsaved changes"); setDirtyVersion((value) => value + 1); };
+  const markDirty = () => { dirtyVersionRef.current += 1; setDirtyVersion(dirtyVersionRef.current); setSaveState("Unsaved changes");};
 
   const request = async <T,>(url: string, body: unknown, method = "PUT") => apiRequest<T>(url, role, { method, body: JSON.stringify(body) });
 
   const saveStep = async (target = step, silent = false) => {
     if (role !== "EDITOR") return true;
+    const versionBeingSaved = dirtyVersionRef.current;
     try {
       if (!silent) setWorking(true);
       setSaveState("Saving…");
@@ -129,7 +131,8 @@ export function CaseWizard({ caseId }: { caseId: string }) {
         if (silent) setAggregate(response.case);
         else hydrate(response.case);
       }
-      setSaveState("All changes saved");
+      if (dirtyVersionRef.current === versionBeingSaved) { dirtyVersionRef.current = 0; setDirtyVersion(0); setSaveState("All changes saved"); } 
+      else { setSaveState("Unsaved changes"); }
       setError("");
       return true;
     } catch (caught) {
