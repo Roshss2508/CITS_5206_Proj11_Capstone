@@ -98,4 +98,48 @@ test.describe("Issue #41 follow-up – Step 5 snapshot history selector", () => 
     await expect(viewingNotice).toHaveCount(0);
     await expect(pdfLink).toHaveAttribute("href", new RegExp(`snapshot=${latestSnapshotId}$`));
   });
+
+  test("browsing an earlier snapshot does not lift the stale-snapshot block on Submit", async ({ page, request }) => {
+    const created = await createCalculatedCase(request, "10000");
+    caseId = created.caseId;
+
+    const edited = await request.put(`/api/v1/cases/${caseId}/costs`, {
+      headers: EDITOR,
+      data: { costs: [{ capabilityId: created.capabilityId, category: "STAFFING", scope: "CAPABILITY", label: "Staffing", amount: "40000", justification: "Second snapshot." }] },
+    });
+    expect(edited.status()).toBe(200);
+    expect((await request.post(`/api/v1/cases/${caseId}/calculate`, { headers: EDITOR })).status()).toBe(201);
+
+    // Change a calculation input afterwards so the latest snapshot is stale.
+    const staled = await request.put(`/api/v1/cases/${caseId}/costs`, {
+      headers: EDITOR,
+      data: { costs: [{ capabilityId: created.capabilityId, category: "STAFFING", scope: "CAPABILITY", label: "Staffing", amount: "55000", justification: "Makes the latest snapshot stale." }] },
+    });
+    expect(staled.status()).toBe(200);
+
+    // Saving inputs moves the stored step back, so open Step 5 through the stepper.
+    await page.goto(`/cases/${caseId}`);
+    await page.waitForLoadState("networkidle");
+    await page.getByRole("button", { name: /Review & export/i }).click();
+    await expect(page.getByRole("heading", { name: /Review the evidence package/i })).toBeVisible();
+
+    const rows = page.locator(".snapshot-list button");
+    const submitButton = page.getByRole("button", { name: /Submit for review/i });
+    const notice = page.locator("#stale-snapshot-notice");
+
+    await expect(rows).toHaveCount(2);
+    await expect(notice).toContainText("Recalculation required");
+    await expect(submitButton).toBeDisabled();
+
+    // The older snapshot was current when it was calculated, but viewing it must not re-enable Submit.
+    await rows.nth(1).click();
+    await expect(rows.nth(1)).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByText(/Viewing an earlier snapshot/i)).toBeVisible();
+    await expect(notice).toContainText("Recalculation required");
+    await expect(submitButton).toBeDisabled();
+
+    // The server-side gate agrees: the case is still blocked until it is recalculated.
+    const blocked = await request.post(`/api/v1/cases/${caseId}/status`, { headers: EDITOR, data: { status: "READY_FOR_REVIEW", comment: "Submitted while viewing an older snapshot." } });
+    expect(blocked.status()).toBe(409);
+  });
 });
