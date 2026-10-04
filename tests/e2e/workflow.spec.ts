@@ -925,4 +925,210 @@ test.describe("Issue #47 – dirty state and autosave", () => {
 
     expect(capabilitySaveCount).toBe(2);
   });
+  test("failed autosave does not clear dirty state and remains retryable", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(60_000);
+
+    const caseName = `Autosave Failure QA ${Date.now()}`;
+
+    const createResponse = await request.post("/api/v1/cases", {
+      headers: { "x-demo-role": "EDITOR" },
+      data: {
+        platformName: caseName,
+        pricingPeriod: "2027–2029",
+      },
+    });
+
+    expect(createResponse.status()).toBe(201);
+
+    const created = await createResponse.json();
+    caseId = created.case.costingCase.id;
+
+    await page.goto(`/cases/${caseId}`);
+
+    await expect(
+      page.getByRole("heading", {
+        name: caseName,
+        level: 1,
+      }),
+    ).toBeVisible();
+
+    await page
+      .getByRole("button", { name: /Capacity & utilisation/i })
+      .click();
+
+    await expect(
+      page.getByRole("heading", {
+        name: /Set realistic capacity and forecast utilisation/i,
+      }),
+    ).toBeVisible();
+
+    const failedAutosave = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/v1/cases/${caseId}/capacity` &&
+        response.request().method() === "PUT" &&
+        response.status() >= 400,
+    );
+
+    await page
+      .getByLabel("Forecast utilisation (%)")
+      .fill("150");
+
+    const failedResponse = await failedAutosave;
+
+    expect(failedResponse.status()).toBeGreaterThanOrEqual(400);
+
+    await expect(
+      page.locator(".save-state"),
+    ).toHaveText("Complete required fields to save");
+
+    await expect(
+      page.locator(".save-state"),
+    ).not.toHaveText("All changes saved");
+
+    // Fix the invalid value. It should retry successfully.
+    const retryAutosave = page.waitForResponse(
+      (response) =>
+        new URL(response.url()).pathname ===
+          `/api/v1/cases/${caseId}/capacity` &&
+        response.request().method() === "PUT" &&
+        response.status() === 200,
+    );
+
+    await page
+      .getByLabel("Forecast utilisation (%)")
+      .fill("50");
+
+    const retryResponse = await retryAutosave;
+
+    expect(retryResponse.status()).toBe(200);
+
+    await expect(
+      page.locator(".save-state"),
+    ).toHaveText("All changes saved");
+  });
+
+  // ADD TEST 3 HERE
+  test("older autosave response does not clear a newer edit", async ({
+    page,
+    request,
+  }) => {
+    test.setTimeout(60_000);
+
+    const caseName = `Autosave Race QA ${Date.now()}`;
+
+    const createResponse = await request.post("/api/v1/cases", {
+      headers: { "x-demo-role": "EDITOR" },
+      data: {
+        platformName: caseName,
+        pricingPeriod: "2027–2029",
+      },
+    });
+
+    expect(createResponse.status()).toBe(201);
+
+    const created = await createResponse.json();
+    caseId = created.case.costingCase.id;
+
+    await page.goto(`/cases/${caseId}`);
+
+    await expect(
+      page.getByRole("heading", {
+        name: caseName,
+        level: 1,
+      }),
+    ).toBeVisible();
+
+    let requestNumber = 0;
+
+    let releaseFirst!: () => void;
+    const firstGate = new Promise<void>((resolve) => {
+      releaseFirst = resolve;
+    });
+
+    let firstStarted!: () => void;
+    const firstStartedPromise = new Promise<void>((resolve) => {
+      firstStarted = resolve;
+    });
+
+    let firstFinished!: () => void;
+    const firstFinishedPromise = new Promise<void>((resolve) => {
+      firstFinished = resolve;
+    });
+
+    let releaseSecond!: () => void;
+    const secondGate = new Promise<void>((resolve) => {
+      releaseSecond = resolve;
+    });
+
+    let secondStarted!: () => void;
+    const secondStartedPromise = new Promise<void>((resolve) => {
+      secondStarted = resolve;
+    });
+
+    await page.route(
+      `**/api/v1/cases/${caseId}/capabilities`,
+      async (route) => {
+        requestNumber += 1;
+        const currentRequest = requestNumber;
+
+        const response = await route.fetch();
+
+        if (currentRequest === 1) {
+          firstStarted();
+          await firstGate;
+          await route.fulfill({ response });
+          firstFinished();
+          return;
+        }
+
+        if (currentRequest === 2) {
+          secondStarted();
+          await secondGate;
+          await route.fulfill({ response });
+          return;
+        }
+
+        await route.fulfill({ response });
+      },
+    );
+
+    const capabilityName = page.getByLabel("Capability name");
+    const saveState = page.locator(".save-state");
+
+    // First edit starts autosave #1.
+    await capabilityName.fill("First edit");
+
+    await firstStartedPromise;
+
+    await expect(saveState).toHaveText("Saving…");
+
+    // Make another edit while save #1 is still waiting.
+    await capabilityName.fill("Second edit");
+
+    await expect(saveState).toHaveText("Unsaved changes");
+
+    // Allow the older save to finish.
+    releaseFirst();
+    await firstFinishedPromise;
+
+    // Older save must not claim the newer edit is saved.
+    await expect(saveState).not.toHaveText("All changes saved");
+
+    await expect(saveState).toHaveText(
+      /Unsaved changes|Saving…/,
+    );
+
+    // Autosave #2 should handle the newer edit.
+    await secondStartedPromise;
+
+    releaseSecond();
+
+    await expect(saveState).toHaveText("All changes saved");
+
+    expect(requestNumber).toBe(2);
+  });
 });
