@@ -16,7 +16,7 @@ All financial values are JSON strings such as `"202.50"`. Demo write requests us
 | POST | `/api/v1/cases/{id}/status` | Editor/Reviewer | Perform a legal workflow transition; submitting or approving requires a current snapshot |
 | POST | `/api/v1/cases/{id}/duplicate` | Editor | Copy a case without snapshots |
 | GET | `/api/v1/cases/{id}/report.pdf` | Any | Export a selected/latest snapshot |
-| GET | `/api/v1/cases/{id}/export.csv` | Any | Export the latest calculated rates |
+| GET | `/api/v1/cases/{id}/export.csv` | Any | Export a selected/latest snapshot |
 | GET | `/api/health` | Any | Service health response |
 
 Error responses use `{ "error": string, "issues"?: ZodIssue[] }`. Responses carrying case data use `Cache-Control: no-store`.
@@ -40,3 +40,16 @@ The case aggregate includes `snapshotFreshness`, which compares the newest calcu
 Inputs that count: capabilities (name, unit, active, order), cost amount/scope/capability, income amount/type, capacity and forecast utilisation, proposed rates and the user-category mix. Row ids, labels, justifications, historic usage, workflow status and timestamps do not count, so re-saving identical data or restoring an archived case leaves a current snapshot current.
 
 `POST /api/v1/cases/{id}/status` returns `409` when moving a case to `READY_FOR_REVIEW` or `APPROVED` while `snapshotFreshness` is `STALE` (or `NONE`). Recalculate with `POST /api/v1/cases/{id}/calculate` to append a new snapshot; earlier snapshots are never modified.
+
+## Exports
+
+Both `report.pdf` and `export.csv` accept an optional `?snapshot={id}` query parameter and resolve through the same helper (`resolveExportSnapshot`), so they can never disagree about which persisted snapshot they represent:
+
+| Case | Response |
+|---|---|
+| `snapshot` omitted | The newest snapshot is used. |
+| `snapshot` matches an existing snapshot on the case | That snapshot is used, regardless of any edits made to the case since. |
+| `snapshot` does not match any snapshot on the case | `404` `{ "error": "Snapshot not found." }` |
+| The case has no snapshots yet | `409` `{ "error": "Create a calculation snapshot before exporting..." }` |
+
+Both formats also surface the snapshot's own metadata — creation time, formula version, and the display name of the actor who ran the calculation (mapped from the snapshot's `createdBy` id via `getActorName`) — read from the snapshot itself, not the live case, so a historical export always shows who and when it was actually calculated.
