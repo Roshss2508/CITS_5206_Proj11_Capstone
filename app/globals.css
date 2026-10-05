@@ -41,7 +41,9 @@ label{display:grid;gap:7px;color:#405469;font-size:12px;font-weight:750}
 .dashboard-header h1{font-size:34px}
 .dashboard-header p:not(.page-kicker){max-width:690px;margin:12px 0 0;color:var(--muted);font-size:14px;line-height:1.6}
 .header-actions{display:flex;align-items:center;justify-content:flex-end;gap:12px;flex-wrap:wrap}
-.role-toggle{display:flex;padding:3px;border:1px solid var(--line);border-radius:9px;background:#fff}.role-toggle button{display:flex;align-items:center;gap:6px;padding:8px 10px;border:0;border-radius:6px;color:#65778a;background:transparent;font-size:12px;font-weight:750;cursor:pointer}.role-toggle button.selected{color:var(--navy);background:#e8f1f7}
+.role-toggle{display:flex;padding:3px;border:1px solid var(--line);border-radius:3px;background:#fff}
+.role-toggle button{display:flex;align-items:center;gap:6px;padding:8px 10px;border:0;border-radius:2px;color:var(--muted);background:transparent;font-size:12px;font-weight:750;cursor:pointer}
+.role-toggle button.selected{color:#fff;background:var(--navy)}
 .button{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:42px;padding:10px 16px;border:1px solid transparent;border-radius:8px;text-decoration:none;font-weight:780;cursor:pointer;transition:transform .15s ease,box-shadow .15s ease,background .15s ease}.button:hover:not(:disabled){transform:translateY(-1px)}
 .button.primary{color:#fff;background:var(--blue);box-shadow:0 8px 20px rgba(39,52,139,.3)}
 .button.primary:hover{background:var(--navy-2)}
