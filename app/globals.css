@@ -1,7 +1,7 @@
 @import "tailwindcss";
 
 :root {
-  --navy:#082f87; --navy-2:#06266e; --blue:#082f87; --sky:#eef3fc; --gold:#b7881e;
+  --navy:#27348b; --navy-2:#1e2769; --blue:#27348b; --sky:#eef3fc; --gold:#b7881e;
   --green:#187653; --red:#b43b3b; --ink:#20242b; --muted:#68717f; --line:#dedfe3;
   --paper:#fff; --white:#fff; --shadow:0 2px 5px rgba(0,0,0,.08);
   --acc-orange:#ff4b0b; --acc-green:#85cb38; --acc-pink:#e940b7; --acc-blue:#4775e8;
