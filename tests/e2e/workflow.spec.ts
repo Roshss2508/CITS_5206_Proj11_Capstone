@@ -270,10 +270,13 @@ test.describe("Issue #6 – core costing workflow", () => {
       expect(response.headers()["content-type"]).toContain("text/csv");
  
       const rows = (await response.text()).trim().split("\r\n");
-      expect(rows.length, "header row plus one row per capability").toBe(2);
-      expect(rows[0]).toContain("Capability");
- 
-      const cells = rows[1].split(",").map((cell) => cell.replace(/^"|"$/g, ""));
+      expect(rows.some((row) => row.includes("Formula version")), "metadata block above the table").toBe(true);
+
+      const headerIndex = rows.findIndex((row) => row.startsWith('"Capability"'));
+      expect(headerIndex, "header row").toBeGreaterThan(-1);
+      expect(rows.length - headerIndex, "header row plus one row per capability").toBe(2);
+
+      const cells = rows[headerIndex + 1].split(",").map((cell) => cell.replace(/^"|"$/g, ""));
       expect(cells[0]).toBe("QA Imaging Service");
       expect(cells[1]).toBe("DAY");
  

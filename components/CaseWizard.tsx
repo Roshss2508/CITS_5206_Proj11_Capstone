@@ -110,7 +110,8 @@ export function CaseWizard({ caseId }: { caseId: string }) {
   const request = async <T,>(url: string, body: unknown, method = "PUT") => apiRequest<T>(url, role, { method, body: JSON.stringify(body) });
 
   const saveStep = async (target = step, silent = false) => {
-    if (role !== "EDITOR") return true;
+    // Only a DRAFT case accepts writes; the API answers 409 for submitted, approved and archived cases.
+    if (role !== "EDITOR" || aggregate?.costingCase.status !== "DRAFT") return true;
     const versionBeingSaved = dirtyVersionRef.current;
     try {
       if (!silent) setWorking(true);
@@ -206,7 +207,7 @@ export function CaseWizard({ caseId }: { caseId: string }) {
 
   if (loading) return <main className="loading-screen"><LoaderCircle className="spin" /> Loading the costing case…</main>;
   if (!aggregate) return <main className="loading-screen error">{error || "Costing case not found."}</main>;
-  const readOnly = role === "REVIEWER" || aggregate.costingCase.status === "APPROVED" || aggregate.costingCase.status === "ARCHIVED";
+  const readOnly = role === "REVIEWER" || aggregate.costingCase.status !== "DRAFT";
 
   return (
     <main className="product-shell">
@@ -219,7 +220,7 @@ export function CaseWizard({ caseId }: { caseId: string }) {
 
         <div className="wizard-status-row">
           <span className={`pill status-${aggregate.costingCase.status.toLowerCase()}`}>{aggregate.costingCase.status.replaceAll("_", " ")}</span>
-          {readOnly && <span className="readonly-note"><ShieldCheck size={15} /> Read-only in this role or status</span>}
+          {readOnly && <span className="readonly-note"><ShieldCheck size={15} /> {role === "REVIEWER" ? "Read-only in the reviewer role" : aggregate.costingCase.status === "READY_FOR_REVIEW" ? "Read-only while the case is awaiting review" : "Read-only for this case status"}</span>}
         </div>
 
         <ol className="stepper" aria-label="Costing workflow">
@@ -242,7 +243,7 @@ export function CaseWizard({ caseId }: { caseId: string }) {
         <footer className="wizard-footer">
           <button className="button ghost" disabled={step === 1 || working} onClick={() => void goTo(step - 1)} type="button"><ChevronLeft size={17} /> Back</button>
           <span>Step {step} of 5</span>
-          {step < 5 ? <button className="button primary" disabled={working || (readOnly && step === 5)} onClick={() => void goTo(step + 1)} type="button">Save & continue <ChevronRight size={17} /></button> : <a className="button ghost" href="/">Finish <CheckCircle2 size={17} /></a>}
+          {step < 5 ? <button className="button primary" disabled={working || (readOnly && step === 5)} onClick={() => void goTo(step + 1)} type="button">{readOnly ? "Continue" : "Save & continue"} <ChevronRight size={17} /></button> : <a className="button ghost" href="/">Finish <CheckCircle2 size={17} /></a>}
         </footer>
       </section>
     </main>

@@ -13,3 +13,8 @@ export function getDemoActor(request: Request): Actor {
 export function requireRole(actor: Actor, ...allowed: ActorRole[]) {
   if (!allowed.includes(actor.role)) throw new Response("This demo role is not allowed to perform that action.", { status: 403 });
 }
+
+/** Maps a persisted actor id (e.g. a snapshot's `createdBy`) back to its demo display name. */
+export function getActorName(actorId: string): string {
+  return Object.values(DEMO_ACTORS).find((actor) => actor.id === actorId)?.name ?? actorId;
+}
