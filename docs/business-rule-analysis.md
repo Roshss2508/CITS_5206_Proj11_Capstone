@@ -8,8 +8,9 @@
 | S2 | `02_TEMPLATE-RIC Cost Calculator.xlsx` | Existing RIC Cost Calculator workbook used to verify spreadsheet structure, formulas, capability allocation, proposed rates and recovery comparison. |
 | S3 | `03_EXAMPLE-Project Costing Template.docx` | Comparable project costing example. It supports guided input, editable assumptions, output review and export patterns, but it is not the source for RIC platform formulas. |
 | S4 | `04_EXAMPLE-UniSuper Calculator.docx` | Comparable calculator user experience reference. It supports the guided calculator pattern, adjustable inputs, forecast output and export pattern. |
-| S5 | Current application and repository review | Used to record how the current implementation appears to handle calculations, benchmarking, exports and persistence. It is not treated as client policy by itself. |
-| S6 | GitHub issue task description | Defines the deliverable scope and acceptance criteria. It is not used as evidence for business rules unless supported by client material or the current implementation. |
+| S5 | Current application, repository and merged GitHub pull requests | Implementation and test evidence, including PRs #1, #14, #16, #17, #21, #23, #34, #36-#38, #40, #49-#53 and #60. It is not treated as client policy by itself. |
+| S6 | GitHub Issues #45 and #46 | Issue #45 tracks alignment with the client-approved MVP scope. Issue #46 tracks acceptance-criteria verification and gap analysis. |
+| S8 | `Proposed MVP client agreement - ES agreed.docx` | Client-approved MVP scope, acceptance criteria, future enhancements and implementation details that still require clarification. |
 
 ---
 
@@ -43,19 +44,17 @@ Confirm whether every S1 operating cost category needs a dedicated field in the 
 
 ### BR-02 — Cost Focus and Replacement Context
 
-**Classification:** Confirmed from client material
+**Classification:** Future enhancement / outside approved MVP
 
-The methodology focuses on operating costs rather than historical capital expenditure.
+The approved agreement treats equipment replacement and recovery as a future enhancement unless the client later confirms that it is essential.
 
-Future replacement should still be considered where appropriate, for example by incorporating an annual recovery target based on a replacement value and recovery period.
-
-**Source:** S1.
+**Source:** S8.
 
 **Current implementation note:**  
-The workbook background material includes capability foundation details, replacement values, replacement timing and maintenance contract notes.
+The current application can record a replacement reserve as an operating-cost category, but it does not calculate replacement timing or a recovery period.
 
 **Clarification:**  
-Confirm when equipment replacement becomes part of the calculated rate rather than supporting context.
+If this enhancement is brought into scope later, confirm the replacement value, recovery period and rate-calculation treatment.
 
 ---
 
@@ -245,72 +244,61 @@ Confirm the exact wording required on PDF and CSV outputs.
 
 ### BR-12 — Benchmarking
 
-**Classification:** Confirmed from client material
+**Classification:** Confirmed MVP requirement; structure pending client clarification
 
-Benchmarking should be considered before rate approval.
+Benchmarking support is part of the client-approved MVP. Benchmark information supports pricing and review decisions but does not replace the operating-cost calculation.
 
-Relevant sources can include:
-
-- NCRIS facilities;
-- other Australian universities;
-- commercial laboratories; and
-- international facilities.
-
-Benchmarking informs pricing but does not replace the operating-cost calculation.
-
-**Source:** S1.
+**Source:** S1, S8.
 
 **Current implementation note:**  
-The workbook contains a competitor pricing background sheet, but the inspected workbook has no visible non-empty competitor pricing entries.
+The repository includes benchmark-related data structures and aggregate reads, but it does not yet provide a complete benchmark entry, save and review workflow or automated benchmark coverage.
 
 **Clarification:**  
-Confirm required benchmark fields, evidence threshold and whether benchmark entries should be mandatory before approval.
+Confirm whether notes are sufficient or a structured comparison is required, including the required provider, rate, source, difference and supporting-note fields.
 
 ---
 
 ### BR-13 — Approval Evidence
 
-**Classification:** Confirmed from client material
+**Classification:** Confirmed MVP review evidence; full digital approval is a future enhancement
 
-Before implementation, rates should be supported by documented costing assumptions, utilisation assumptions and benchmarking.
+The approved MVP requires structured review information. A complete in-application digital approval workflow is a future enhancement.
 
-Approval should be obtained from the delegated authority, typically the head of the business unit responsible for operating costs, and records should be retained for audit and review.
-
-**Source:** S1.
+**Source:** S1, S8.
 
 **Current implementation note:**  
-The current application should support exportable review summaries so approval evidence can be retained outside the system if formal approval workflow is not implemented.
+The application stores calculation snapshots and audit events, blocks submission or approval when the latest snapshot is stale, restricts approval to the Reviewer role and provides Audit History navigation. Relevant evidence includes PRs #34, #36, #40, #50, #52 and #53.
 
 **Clarification:**  
-Confirm whether the application itself needs approval states, approver fields and attachment uploads.
+Confirm the final review fields and the exact calculation/audit-history events, retention period and display behaviour required for the MVP. Approver fields, attachment uploads and the full digital approval workflow remain future work unless separately approved.
 
 ---
 
 ### BR-14 — Rate Communication
 
-**Classification:** Confirmed from client material
+**Classification:** Confirmed MVP supporting output; communication workflow is a future enhancement
 
-Approved rates and price changes should be communicated clearly before rollout, including why the price changed and how the methodology supports sustainable infrastructure operation.
+The approved MVP requires supporting output for review and communication. Automated distribution and rate-change communication are future enhancements.
 
-**Source:** S1.
+**Source:** S1, S8.
 
 **Current implementation note:**  
-The application can support this by producing clear PDF/CSV summaries, but the communication workflow itself may remain outside the MVP.
+The application generates PDF and CSV outputs from the persisted calculation snapshot. PR #52 verifies that both formats remain consistent with the saved calculation.
 
 **Clarification:**  
-Confirm whether rate-change notices are part of the system scope.
+Confirm the final audience, wording and delivery process for rate communication if an automated workflow is introduced later.
 
 ---
 
 ### BR-15 — Shared and Platform-Level Cost Allocation
 
-**Classification:** Pending client confirmation
+**Classification:** Pending client clarification
 
 Shared or platform-level costs need an allocation rule before they can be attributed to individual capabilities.
 
 The workbook appears to spread directly allocated costs across active capabilities, but the context document does not confirm a formal allocation driver.
 
-**Source:** S1, S2, S5.
+**Source:** S1, S2, S5, S8.
 
 **Current implementation note:**  
 The current application appears to allocate shared platform costs equally across active capabilities.
@@ -365,51 +353,46 @@ Confirm whether the client requires an explicit calculation version label in exp
 
 ### BR-18 — Justification and Evidence Traceability
 
-**Classification:** Proposed
+**Classification:** Confirmed MVP justification/evidence requirement
 
-Each business rule, formula and material assumption should be traceable to either:
+The approved MVP requires justification and supporting evidence for material costs, utilisation assumptions and pricing decisions.
 
-- client material;
-- the existing calculator;
-- the current implementation; or
-- an explicit client clarification.
-
-**Source:** S6.
+**Source:** S8.
 
 **Current implementation note:**  
-This catalogue uses source IDs and classification status to support traceability.
+The application records justification notes for costs, income, capacity and proposed rates. This catalogue and the RTM use source IDs, implementation references, tests, Issues and PRs to preserve traceability.
 
 **Clarification:**  
-Confirm whether the client expects evidence attachments, links, screenshots or notes at the rule level.
+Confirm whether the final workflow requires uploaded evidence attachments in addition to notes and links.
 
 ---
 
 ### BR-19 — Benchmark Data Persistence
 
-**Classification:** Pending client confirmation
+**Classification:** Confirmed MVP benchmarking recording; retention structure pending client clarification
 
-The system should clarify whether benchmark data is only review context or a required record that must be saved with each case.
+The approved MVP requires benchmark records to support pricing and review decisions.
 
-**Source:** S1, S2, S5.
+**Source:** S1, S2, S5, S8.
 
 **Current implementation note:**  
-The repository includes benchmark-related structures, but the reviewed current implementation does not appear to provide a complete benchmarking save flow in the UI/API.
+The repository includes benchmark-related structures and aggregate reads, but the current implementation does not provide a complete save flow, user interface or automated test.
 
 **Clarification:**  
-Confirm whether benchmarking is mandatory for MVP acceptance and what data must be stored.
+Confirm the required benchmark fields, evidence threshold, retention behaviour and whether a benchmark record is mandatory before review or submission.
 
 ---
 
 ### BR-20 — Document Export
 
-**Classification:** Pending client confirmation
+**Classification:** Confirmed MVP supporting output; format pending client clarification
 
 The calculator should support exportable outputs so assumptions, rates and review evidence can be shared for approval and communication.
 
-**Source:** S1, S3, S4, S5.
+**Source:** S1, S3, S4, S5, S8.
 
 **Current implementation note:**  
-The example documents support exportable calculator outputs, and the current application includes PDF/CSV export routes.
+The application provides PDF and CSV exports generated from the persisted calculation snapshot. PRs #23 and #52 provide formatting and snapshot-consistency evidence.
 
 **Clarification:**  
 Confirm the exact fields required in the final PDF and CSV exports.
@@ -422,9 +405,11 @@ Confirm the exact fields required in the final PDF and CSV exports.
 |---|---|---|
 | APFR / PFR / PFRI terminology | The context and issue use Australian publicly funded researcher wording, while workbook/user-group material also shows PFRI. The label must be confirmed before final field names and exports are locked. | Displayed terminology as pending client confirmation. |
 | Shared cost allocation | The workbook suggests equal spreading of directly allocated costs across active capabilities, and the current application appears to follow equal allocation. The client methodology does not explicitly state that equal allocation is the final rule. | Keep shared/platform cost allocation as pending until the client confirms the allocation driver. |
-| Equipment replacement recovery | The context document supports considering future replacement, and the workbook contains replacement values and timing. It does not fully define when the replacement amount must be included in charge-out calculations. | Record equipment recovery as a supported concept with implementation details pending. |
-| Benchmarking implementation | The context document requires benchmarking as part of approval, but the workbook competitor pricing sheet is empty and the current application review found incomplete benchmarking persistence. | Record benchmarking as a confirmed requirement, with required fields and MVP behaviour still unresolved. |
+| Equipment replacement recovery | The agreement places equipment replacement and recovery outside the approved MVP unless later confirmed as essential. | Record it as a future enhancement rather than an incomplete MVP requirement. |
+| Benchmarking implementation | Benchmarking support is approved for the MVP, but the current application does not provide a complete entry, persistence and review workflow. | Record benchmarking as an MVP gap while keeping its structure and retention details pending clarification. |
+| Review and audit history | Structured review information is required, and snapshots, stale-state controls and Audit History navigation are implemented. The exact events, retained fields and history behaviour are not fully client-confirmed. | Treat the current evidence as implemented, keep detailed review/audit behaviour pending and leave a full digital approval workflow as a future enhancement. |
 | GST export wording | The context confirms GST-exclusive rates and separate GST handling for external users. The exact export wording and invoice boundary still need approval. | Export wording as a clarification question. |
+| PDF and CSV output | Snapshot-consistent PDF and CSV exports are implemented, but the final required fields, wording and retained audit information remain unresolved. | Treat supporting output as MVP functionality and keep final format details pending clarification. |
 
 ---
 
@@ -439,14 +424,24 @@ Confirm the exact fields required in the final PDF and CSV exports.
 | Q-05 | What historical utilisation period and forecast horizon must be captured for each capability? |
 | Q-06 | Should the standard year and machine-year capacity assumptions be fixed defaults, editable defaults or examples only? |
 | Q-07 | What allocation driver should be used for shared or platform-level costs? |
-| Q-08 | When should equipment replacement or recovery costs be included in the calculated charge-out rates? |
-| Q-09 | What benchmark fields, evidence sources and update frequency are required? |
-| Q-10 | Is benchmarking mandatory before approval, and does benchmark data alter calculated rates or only support review decisions? |
+| Q-08 | If equipment replacement or recovery becomes essential in a future scope, what replacement value, recovery period and calculation treatment should be used? |
+| Q-09 | What benchmark fields, evidence sources, comparison structure and update frequency are required? |
+| Q-10 | Must a benchmark record exist before review or submission, and does it only support the decision or affect any calculation? |
 | Q-11 | Do proposed rates below the calculated sustainable rate require justification notes or extra approval? |
 | Q-12 | What rounding, currency precision and decimal display rules should be used in the application and exports? |
 | Q-13 | What exact GST-exclusive wording should appear in PDF and CSV outputs? |
-| Q-14 | Does the system need built-in approval states, approver fields and attachment uploads, or is export for external approval sufficient? |
+| Q-14 | Which review fields and calculation/audit-history events must the MVP retain and display? |
+| Q-15 | What exact fields, ordering, wording and audit information must appear in the final PDF and CSV outputs? |
 
 ---
 
 ## Acceptance Criteria Coverage
+
+| Issue #45 criterion | Coverage |
+|---|---|
+| Review the client-approved MVP agreement against the current RTM. | Complete. S8 is mapped across the RTM and the approved scope is separated from remaining implementation clarifications. |
+| Update MVP status wording where the scope is formally approved. | Complete. Approved requirements are marked as MVP; equipment replacement and full digital approval/communication workflows are identified as future enhancements. |
+| Preserve pending implementation clarifications. | Complete. Benchmarking structure, shared/platform allocation, external-researcher terminology, review/audit behaviour and final PDF/CSV details remain explicit. |
+| Update source references. | Complete. The client-approved agreement, Issues #45/#46 and merged PR/test evidence are referenced. |
+| Keep the RTM, Rule and Sources tabs consistent with this analysis. | Complete. BR-01 to BR-20 use the same scope classifications and source treatment. |
+| Do not introduce unsupported business rules. | Complete. Scope changes are tied to S8, while implementation evidence is identified separately from client policy. |
