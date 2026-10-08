@@ -369,9 +369,9 @@ Confirm whether the final workflow requires uploaded evidence attachments in add
 
 ### BR-19 — Benchmark Data Persistence
 
-**Classification:** Confirmed MVP benchmarking recording; retention structure pending client clarification
+**Classification:** Confirmed MVP benchmarking support; record structure, retention and mandatory-record requirement pending client clarification
 
-The approved MVP requires benchmark records to support pricing and review decisions.
+Benchmarking support and the ability to record benchmark information are part of the approved MVP. The exact fields, retention behaviour and whether a benchmark record is mandatory before review or submission remain pending client clarification.
 
 **Source:** S1, S2, S5, S8.
 
@@ -406,7 +406,7 @@ Confirm the exact fields required in the final PDF and CSV exports.
 | APFR / PFR / PFRI terminology | The context and issue use Australian publicly funded researcher wording, while workbook/user-group material also shows PFRI. The label must be confirmed before final field names and exports are locked. | Displayed terminology as pending client confirmation. |
 | Shared cost allocation | The workbook suggests equal spreading of directly allocated costs across active capabilities, and the current application appears to follow equal allocation. The client methodology does not explicitly state that equal allocation is the final rule. | Keep shared/platform cost allocation as pending until the client confirms the allocation driver. |
 | Equipment replacement recovery | The agreement places equipment replacement and recovery outside the approved MVP unless later confirmed as essential. | Record it as a future enhancement rather than an incomplete MVP requirement. |
-| Benchmarking implementation | Benchmarking support is approved for the MVP, but the current application does not provide a complete entry, persistence and review workflow. | Record benchmarking as an MVP gap while keeping its structure and retention details pending clarification. |
+| Benchmarking implementation | Benchmarking support and recording are approved for the MVP, but the exact fields, retention behaviour and whether a record is mandatory before review or submission remain unresolved. | Record the current workflow as partially satisfied without treating a benchmark record as mandatory until the client confirms that requirement. |
 | Review and audit history | Structured review information is required, and snapshots, stale-state controls and Audit History navigation are implemented. The exact events, retained fields and history behaviour are not fully client-confirmed. | Treat the current evidence as implemented, keep detailed review/audit behaviour pending and leave a full digital approval workflow as a future enhancement. |
 | GST export wording | The context confirms GST-exclusive rates and separate GST handling for external users. The exact export wording and invoice boundary still need approval. | Export wording as a clarification question. |
 | PDF and CSV output | Snapshot-consistent PDF and CSV exports are implemented, but the final required fields, wording and retained audit information remain unresolved. | Treat supporting output as MVP functionality and keep final format details pending clarification. |

@@ -36,4 +36,4 @@ Equipment replacement/recovery, a full digital approval workflow and automated r
 - Whether supporting evidence requires uploaded attachments in addition to notes and links.
 - The exact fields, ordering, GST wording and retained audit information required in PDF and CSV outputs. Automated communication is a future enhancement.
 
-Changes to these decisions require a new formula version and must never overwrite existing snapshots.
+Only confirmed decisions that change calculation logic require a new formula version and must not overwrite existing snapshots. Terminology, evidence-attachment and export-wording changes may be updated without a formula-version change unless they affect calculation results.
