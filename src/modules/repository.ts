@@ -1,6 +1,7 @@
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, getTableColumns, inArray } from "drizzle-orm";
 import type { BatchItem } from "drizzle-orm/batch";
 import { ensureDatabase, getDb } from "@/db";
+import { chunkInsertRows } from "@/db/batching";
 import {
   actors,
   auditEvents,
@@ -165,6 +166,8 @@ type IncomeInput = Array<Omit<IncomeLine, "caseId" | "id"> & { id?: string }>;
 
 // D1 batch runs these statements as one transaction. A failed insert rolls back
 // the deletions, case timestamp and audit events along with the other inserts.
+// Chunk INSERTs within this same batch: separate db.batch calls would commit
+// earlier chunks independently and break the all-or-nothing Step 2 save.
 async function replaceStep2Rows(caseId: string, input: { costs?: CostInput; income?: IncomeInput }, actor: Actor) {
   await ensureDatabase();
   await assertEditable(caseId);
@@ -182,8 +185,8 @@ async function replaceStep2Rows(caseId: string, input: { costs?: CostInput; inco
 
   if (input.costs) {
     statements.push(db.delete(costLines).where(eq(costLines.caseId, caseId)));
-    if (input.costs.length) {
-      statements.push(db.insert(costLines).values(input.costs.map((row) => ({ ...row, id: row.id || uid(), caseId }))));
+    for (const rows of chunkInsertRows(input.costs, Object.keys(getTableColumns(costLines)).length)) {
+      statements.push(db.insert(costLines).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId }))));
     }
     statements.push(db.insert(auditEvents).values({
       id: uid(), caseId, actorId: actor.id, action: "COSTS_SAVED",
@@ -194,8 +197,8 @@ async function replaceStep2Rows(caseId: string, input: { costs?: CostInput; inco
 
   if (input.income) {
     statements.push(db.delete(incomeLines).where(eq(incomeLines.caseId, caseId)));
-    if (input.income.length) {
-      statements.push(db.insert(incomeLines).values(input.income.map((row) => ({ ...row, id: row.id || uid(), caseId }))));
+    for (const rows of chunkInsertRows(input.income, Object.keys(getTableColumns(incomeLines)).length)) {
+      statements.push(db.insert(incomeLines).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId }))));
     }
     statements.push(db.insert(auditEvents).values({
       id: uid(), caseId, actorId: actor.id, action: "INCOME_SAVED",
