@@ -61,12 +61,14 @@ export function BusinessRules() {
             <h2>Rules applied to every calculation</h2>
             <p>These rules are currently implemented and tested, and are used for every costing case on RIC Formula V1. Some implementation details still require client confirmation — see docs/business-rule-analysis.md for the areas still open.</p>
           </div>
-          <table className="rules-table">
-            <thead><tr><th>Rule ID</th><th>Rule</th><th>Automated evidence</th></tr></thead>
-            <tbody>
-              {currentRules.map((item) => <tr key={item.id}><td>{item.id}</td><td>{item.rule}</td><td>{item.evidence}</td></tr>)}
-            </tbody>
-          </table>
+          <div className="rules-table-scroll">
+            <table className="rules-table">
+              <thead><tr><th>Rule ID</th><th>Rule</th><th>Automated evidence</th></tr></thead>
+              <tbody>
+                {currentRules.map((item) => <tr key={item.id}><td>{item.id}</td><td>{item.rule}</td><td>{item.evidence}</td></tr>)}
+              </tbody>
+            </table>
+          </div>
           <p className="rules-precision-note">SQLite stores financial values as decimal strings and <code>decimal.js</code> performs every authoritative calculation. Intermediate results are not rounded — currency is rounded half-up to two decimal places and quantities to six decimal places for presentation only.</p>
 
           <div className="pending-rules">
