@@ -125,4 +125,84 @@ test.describe("atomic Step 2 persistence", () => {
     expect(after.income).toEqual(before.income);
     expect(after.auditEvents).toEqual(before.auditEvents);
   });
+
+  test("replaces and clears maximum-size collections across 20 capabilities", async ({ request }) => {
+    const capabilityResponse = await request.put(`/api/v1/cases/${caseId}/capabilities`, {
+      headers: EDITOR,
+      data: {
+        capabilities: Array.from({ length: 20 }, (_, index) => ({
+          id: index === 0 ? capabilityId : undefined, name: `Synthetic capability ${index}`,
+          billableUnit: "HOUR", active: true, displayOrder: index,
+        })),
+      },
+    });
+    expect(capabilityResponse.status()).toBe(200);
+    const capabilityIds = (await capabilityResponse.json()).case.capabilities.map((row: { id: string }) => row.id);
+    const costs = Array.from({ length: 200 }, (_, index) => ({
+      ...cost(capabilityIds[index % 20], `large-cost-${index}`, `${index + 1}.23`),
+      label: `Synthetic cost ${index}`, justification: `Synthetic cost evidence ${index}.`,
+    }));
+    const incomes = Array.from({ length: 100 }, (_, index) => ({
+      ...income(caseId, `large-income-${index}`, `${index + 1}.45`),
+      sourceName: `Synthetic support ${index}`, sourceType: index % 2 === 0 ? "UWA_SUPPORT" : "NON_UWA_SUPPORT",
+    }));
+    const url = `/api/v1/cases/${caseId}/step-2`;
+    const response = await request.put(url, { headers: EDITOR, data: { costs, income: incomes } });
+    expect(response.status()).toBe(200);
+    const saved = await readCase(request, caseId);
+    expect(saved.costs).toHaveLength(200);
+    expect(saved.costs).toEqual(expect.arrayContaining(costs.map((row) => ({ ...row, caseId }))));
+    expect(saved.income).toHaveLength(100);
+    expect(saved.income).toEqual(expect.arrayContaining(incomes.map((row) => ({ ...row, caseId }))));
+    expect(saved.auditEvents.filter((event: { action: string }) => event.action === "COSTS_SAVED")).toHaveLength(1);
+    expect(saved.auditEvents.filter((event: { action: string }) => event.action === "INCOME_SAVED")).toHaveLength(1);
+
+    expect((await request.put(url, { headers: EDITOR, data: { costs: [], income: [] } })).status()).toBe(200);
+    const cleared = await readCase(request, caseId);
+    expect(cleared.costs).toEqual([]);
+    expect(cleared.income).toEqual([]);
+  });
+
+  for (const collection of ["costs", "income"] as const) {
+    test(`rolls back all chunks when the final ${collection} insert fails`, async ({ request }) => {
+      const url = `/api/v1/cases/${caseId}/step-2`;
+      expect((await request.put(url, {
+        headers: EDITOR,
+        data: { costs: [cost(capabilityId, "original-cost", "100")], income: [income(caseId, "original-income", "30")] },
+      })).status()).toBe(200);
+      expect((await request.patch(`/api/v1/cases/${caseId}`, { headers: EDITOR, data: { currentStep: 2 } })).status()).toBe(200);
+      const before = await readCase(request, caseId);
+      const costs = Array.from({ length: 200 }, (_, index) => cost(capabilityId, `replacement-cost-${index}`, `${index + 1}`));
+      const incomes = Array.from({ length: 100 }, (_, index) => income(caseId, `replacement-income-${index}`, `${index + 1}`));
+      const rows = collection === "costs" ? costs : incomes;
+      rows[rows.length - 1].id = rows[0].id;
+
+      const response = await request.put(url, { headers: EDITOR, data: { costs, income: incomes } });
+      expect(response.status()).toBe(500);
+      // Compare the complete persisted aggregate: both collections, the step,
+      // timestamp, audit history and unrelated data must remain unchanged.
+      expect(await readCase(request, caseId)).toEqual(before);
+    });
+  }
+
+  test("handles maximum-size legacy saves and rolls back a later chunk failure", async ({ request }) => {
+    const costs = Array.from({ length: 200 }, (_, index) => cost(capabilityId, `legacy-cost-${index}`, `${index + 1}`));
+    const incomes = Array.from({ length: 100 }, (_, index) => income(caseId, `legacy-income-${index}`, `${index + 1}`));
+    const costsUrl = `/api/v1/cases/${caseId}/costs`;
+    const incomeUrl = `/api/v1/cases/${caseId}/income`;
+    expect((await request.put(costsUrl, { headers: EDITOR, data: { costs } })).status()).toBe(200);
+    expect((await request.put(incomeUrl, { headers: EDITOR, data: { income: incomes } })).status()).toBe(200);
+    const before = await readCase(request, caseId);
+    expect(before.costs).toHaveLength(200);
+    expect(before.costs).toEqual(expect.arrayContaining(costs.map((row) => ({ ...row, caseId }))));
+    expect(before.income).toHaveLength(100);
+    expect(before.income).toEqual(expect.arrayContaining(incomes.map((row) => ({ ...row, caseId }))));
+
+    costs[costs.length - 1].id = costs[0].id;
+    incomes[incomes.length - 1].id = incomes[0].id;
+    expect((await request.put(costsUrl, { headers: EDITOR, data: { costs } })).status()).toBe(500);
+    expect(await readCase(request, caseId)).toEqual(before);
+    expect((await request.put(incomeUrl, { headers: EDITOR, data: { income: incomes } })).status()).toBe(500);
+    expect(await readCase(request, caseId)).toEqual(before);
+  });
 });

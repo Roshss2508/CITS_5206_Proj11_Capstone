@@ -27,6 +27,8 @@ The wizard sends `{ "costs": [...], "income": [...] }` to `PUT /api/v1/cases/{id
 
 The separate `/costs` and `/income` routes remain available for existing clients. Each route now performs its own replacement, case update and audit write atomically. Clients that need the entire Step 2 form saved together should use `/step-2`.
 
+Step 2 accepts at most 200 costs and 100 income records. Inserts are split according to D1's 100-bound-parameter limit and the table's column count: currently at most 12 costs or 16 income records per INSERT. All INSERT chunks, deletions, the case update and audit events stay in **one** transactional `db.batch()` call. A failure in any later chunk rolls back the entire save. Audit events describe the complete submitted collection, rather than individual chunks. See [Step 2 batching verification](testing/step2-batching.md) for evidence and reproduction commands.
+
 ## Snapshot freshness
 
 The case aggregate includes `snapshotFreshness`, which compares the newest calculation snapshot with the case's current calculation inputs:
