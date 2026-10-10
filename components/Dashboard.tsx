@@ -133,7 +133,7 @@ export function Dashboard() {
           ) : (
             <div className="case-grid">
               {cases.map((item) => (
-                <article className={`case-card ${item.status === "ARCHIVED" ? "archived" : ""}`} key={item.id}>
+                <article className={`case-card ${item.status === "ARCHIVED" ? "archived" : ""}`} data-status={item.status.toLowerCase()} key={item.id}>
                   <div className="case-card-top"><span className={`pill status-${item.status.toLowerCase()}`}>{statusLabel[item.status]}</span><span className="case-step">Step {item.currentStep}/5</span></div>
                   <h3>{item.platformName}</h3><p>{item.pricingPeriod}</p>
                   <div className="case-meta"><span>Formula</span><strong>{item.formulaVersion.replace("RIC_", "RIC ")}</strong><span>Updated</span><strong>{new Date(item.updatedAt).toLocaleDateString("en-AU")}</strong></div>
