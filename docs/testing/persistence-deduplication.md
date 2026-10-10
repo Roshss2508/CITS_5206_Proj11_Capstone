@@ -51,9 +51,13 @@ npm run test:e2e -- --workers=1
 
 All data are synthetic and the HTTP integration tests use local D1, not hosted client data.
 
+### Existing PDF-test reliability correction found during revalidation
+
+The first post-rebase full run exposed a pre-existing test-helper defect: one PDF had a declared compressed-stream length of 963 bytes, but the test's delimiter regex captured only 962 because it consumed the final binary CR byte as part of CRLF. Decompression then failed and the helper silently returned no text. The application returned a valid PDF; this was not a changed export contract. The helper now reads pdf-lib's declared direct stream length without trimming binary data or swallowing decompression failures. Two deterministic helper tests cover a final compressed CR byte and multiple plain-text streams. Production PDF generation and the existing export assertions are unchanged.
+
 Local verification on 10 October 2026 (revalidated after rebasing onto merged PR #70):
 
-- `npm run ci`: lint, TypeScript checking, **139 tests across 10 files**, and production build passed.
+- `npm run ci`: lint, TypeScript checking, **141 tests across 11 files**, and production build passed.
 - Focused duplicate-save/atomic HTTP suite: **26 passed** across Chrome and Edge.
 - Full browser regression: **102 passed** across Chrome and Edge.
 - `git diff --check`: passed.
