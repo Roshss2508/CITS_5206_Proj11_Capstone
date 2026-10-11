@@ -31,14 +31,16 @@ import type {
   SnapshotInputPayload,
 } from "@/src/modules/types";
 import { STALE_SNAPSHOT_MESSAGE, getSnapshotFreshness } from "@/src/modules/snapshotFreshness";
+import { persistenceNumber, samePersistedRows } from "@/src/modules/persistenceComparison";
 
 const now = () => new Date().toISOString();
 const uid = () => crypto.randomUUID();
 
 async function assertEditable(caseId: string) {
-  const [row] = await getDb().select({ status: costingCases.status }).from(costingCases).where(eq(costingCases.id, caseId)).limit(1);
+  const [row] = await getDb().select().from(costingCases).where(eq(costingCases.id, caseId)).limit(1);
   if (!row) throw new Error("Costing case not found.");
   if (row.status !== "DRAFT") throw new Response("Submitted, approved and archived cases are read-only.", { status: 409 });
+  return row;
 }
 
 async function assertCapabilitiesBelongToCase(caseId: string, capabilityIds: string[]) {
@@ -127,7 +129,8 @@ export async function getCase(caseId: string): Promise<CostingCaseAggregate> {
 
 export async function updateCase(caseId: string, values: Partial<Pick<CostingCase, "platformName" | "pricingPeriod" | "currentStep">>, actor: Actor) {
   await ensureDatabase();
-  await assertEditable(caseId);
+  const existing = await assertEditable(caseId);
+  if (Object.entries(values).every(([key, value]) => value === undefined || existing[key as keyof typeof values] === value)) return getCase(caseId);
   await getDb().update(costingCases).set({ ...values, updatedAt: now() }).where(eq(costingCases.id, caseId));
   await addAudit(caseId, actor, "CASE_UPDATED", "Updated case details.");
   return getCase(caseId);
@@ -135,15 +138,23 @@ export async function updateCase(caseId: string, values: Partial<Pick<CostingCas
 
 export async function saveCapabilities(caseId: string, input: Array<Omit<Capability, "caseId" | "id"> & { id?: string }>, actor: Actor) {
   await ensureDatabase();
-  await assertEditable(caseId);
+  const current = await assertEditable(caseId);
   const db = getDb();
   const existing = await db.select().from(capabilities).where(eq(capabilities.caseId, caseId));
+  const fields = (row: Omit<Capability, "caseId" | "id">) => [row.name, row.billableUnit, row.active, row.displayOrder];
+  // Capability IDs are referenced by other tables. Missing or unknown IDs keep
+  // their existing "new capability" meaning; never match those by content.
+  if (input.every((row) => row.id) && samePersistedRows(existing, input, fields)) {
+    if (current.currentStep !== 2) await touchCase(caseId, 2);
+    return getCase(caseId);
+  }
   const existingIds = new Set(existing.map((item) => item.id));
   const retainedIds = new Set<string>();
   for (const item of input) {
     const itemId = item.id && existingIds.has(item.id) ? item.id : uid();
     retainedIds.add(itemId);
     if (existingIds.has(itemId)) {
+      if (samePersistedRows(existing.filter((row) => row.id === itemId), [item], fields)) continue;
       await db.update(capabilities).set({ name: item.name, billableUnit: item.billableUnit, active: item.active, displayOrder: item.displayOrder }).where(and(eq(capabilities.id, itemId), eq(capabilities.caseId, caseId)));
     } else {
       await db.insert(capabilities).values({ id: itemId, caseId, name: item.name, billableUnit: item.billableUnit, active: item.active, displayOrder: item.displayOrder });
@@ -170,7 +181,7 @@ type IncomeInput = Array<Omit<IncomeLine, "caseId" | "id"> & { id?: string }>;
 // earlier chunks independently and break the all-or-nothing Step 2 save.
 async function replaceStep2Rows(caseId: string, input: { costs?: CostInput; income?: IncomeInput }, actor: Actor) {
   await ensureDatabase();
-  await assertEditable(caseId);
+  const current = await assertEditable(caseId);
   if (input.costs) {
     await assertCapabilitiesBelongToCase(
       caseId,
@@ -178,12 +189,34 @@ async function replaceStep2Rows(caseId: string, input: { costs?: CostInput; inco
     );
   }
   const db = getDb();
+  const [existingCosts, existingIncome, savedEvents] = await Promise.all([
+    input.costs ? db.select().from(costLines).where(eq(costLines.caseId, caseId)) : Promise.resolve([]),
+    input.income ? db.select().from(incomeLines).where(eq(incomeLines.caseId, caseId)) : Promise.resolve([]),
+    db.select({ action: auditEvents.action }).from(auditEvents)
+      .where(and(eq(auditEvents.caseId, caseId), inArray(auditEvents.action, ["COSTS_SAVED", "INCOME_SAVED"])))
+      .groupBy(auditEvents.action),
+  ]);
+  // First empty saves are meaningful: these audit markers prevent the wizard
+  // from hydrating synthetic default rows again after the user cleared them.
+  const costsChanged = input.costs !== undefined && (
+    !savedEvents.some((event) => event.action === "COSTS_SAVED") ||
+    !samePersistedRows(existingCosts, input.costs, (row) => [
+      row.capabilityId, row.category, row.scope, row.label, persistenceNumber(row.amount), row.justification,
+    ])
+  );
+  const incomeChanged = input.income !== undefined && (
+    !savedEvents.some((event) => event.action === "INCOME_SAVED") ||
+    !samePersistedRows(existingIncome, input.income, (row) => [
+      row.sourceName, row.sourceType, persistenceNumber(row.amount), row.justification,
+    ])
+  );
+  if (!costsChanged && !incomeChanged && current.currentStep === 3) return getCase(caseId);
   const timestamp = now();
   const statements: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
     db.update(costingCases).set({ currentStep: 3, updatedAt: timestamp }).where(eq(costingCases.id, caseId)),
   ];
 
-  if (input.costs) {
+  if (costsChanged && input.costs) {
     statements.push(db.delete(costLines).where(eq(costLines.caseId, caseId)));
     for (const rows of chunkInsertRows(input.costs, Object.keys(getTableColumns(costLines)).length)) {
       statements.push(db.insert(costLines).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId }))));
@@ -195,7 +228,7 @@ async function replaceStep2Rows(caseId: string, input: { costs?: CostInput; inco
     }));
   }
 
-  if (input.income) {
+  if (incomeChanged && input.income) {
     statements.push(db.delete(incomeLines).where(eq(incomeLines.caseId, caseId)));
     for (const rows of chunkInsertRows(input.income, Object.keys(getTableColumns(incomeLines)).length)) {
       statements.push(db.insert(incomeLines).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId }))));
@@ -225,9 +258,17 @@ export async function saveCostsAndIncome(caseId: string, costs: CostInput, incom
 
 export async function saveCapacity(caseId: string, rows: Array<Omit<CapacityPlan, "caseId" | "id" | "historicYear1" | "historicYear2" | "historicYear3"> & { id?: string; historicYear1?: string | null; historicYear2?: string | null; historicYear3?: string | null }>, actor: Actor) {
   await ensureDatabase();
-  await assertEditable(caseId);
+  const current = await assertEditable(caseId);
   await assertCapabilitiesBelongToCase(caseId, rows.map((row) => row.capabilityId));
   const db = getDb();
+  const existing = await db.select().from(capacityPlans).where(eq(capacityPlans.caseId, caseId));
+  if (samePersistedRows(existing, rows, (row) => [
+    row.capabilityId, persistenceNumber(row.maximumCapacity), persistenceNumber(row.forecastUtilisationPct),
+    persistenceNumber(row.historicYear1), persistenceNumber(row.historicYear2), persistenceNumber(row.historicYear3), row.justification,
+  ])) {
+    if (current.currentStep !== 4) await touchCase(caseId, 4);
+    return getCase(caseId);
+  }
   await db.delete(capacityPlans).where(eq(capacityPlans.caseId, caseId));
   await db.insert(capacityPlans).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId, historicYear1: row.historicYear1 || null, historicYear2: row.historicYear2 || null, historicYear3: row.historicYear3 || null })));
   await touchCase(caseId, 4);
@@ -237,9 +278,17 @@ export async function saveCapacity(caseId: string, rows: Array<Omit<CapacityPlan
 
 export async function saveProposedRates(caseId: string, rows: Array<Omit<ProposedRate, "caseId" | "id" | "uwaRate" | "apfrRate" | "commercialRate"> & { id?: string; uwaRate?: string | null; apfrRate?: string | null; commercialRate?: string | null }>, actor: Actor) {
   await ensureDatabase();
-  await assertEditable(caseId);
+  const current = await assertEditable(caseId);
   await assertCapabilitiesBelongToCase(caseId, rows.map((row) => row.capabilityId));
   const db = getDb();
+  const existing = await db.select().from(proposedRates).where(eq(proposedRates.caseId, caseId));
+  if (samePersistedRows(existing, rows, (row) => [
+    row.capabilityId, persistenceNumber(row.uwaRate), persistenceNumber(row.apfrRate), persistenceNumber(row.commercialRate),
+    persistenceNumber(row.uwaSharePct), persistenceNumber(row.apfrSharePct), persistenceNumber(row.commercialSharePct), row.justification,
+  ])) {
+    if (current.currentStep !== 5) await touchCase(caseId, 5);
+    return getCase(caseId);
+  }
   await db.delete(proposedRates).where(eq(proposedRates.caseId, caseId));
   await db.insert(proposedRates).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId, uwaRate: row.uwaRate || null, apfrRate: row.apfrRate || null, commercialRate: row.commercialRate || null })));
   await touchCase(caseId, 5);

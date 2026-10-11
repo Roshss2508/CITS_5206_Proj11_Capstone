@@ -23,11 +23,19 @@ Error responses use `{ "error": string, "issues"?: ZodIssue[] }`. Responses carr
 
 ## Step 2 saves
 
-The wizard sends `{ "costs": [...], "income": [...] }` to `PUT /api/v1/cases/{id}/step-2`. Both arrays are required and may be empty. The server validates both before writing, then replaces the two collections, updates the case step and timestamp, and records the existing cost and income audit actions in one D1 transactional batch. If any statement fails, all of those changes roll back. The response remains `{ "case": CostingCaseAggregate }`.
+The wizard sends `{ "costs": [...], "income": [...] }` to `PUT /api/v1/cases/{id}/step-2`. Both arrays are required and may be empty. The server validates both before writing, then replaces changed collections, updates the case step and timestamp when needed, and records the existing audit action for each changed collection in one D1 transactional batch. If any statement fails, all of those changes roll back. The response remains `{ "case": CostingCaseAggregate }`.
 
 The separate `/costs` and `/income` routes remain available for existing clients. Each route now performs its own replacement, case update and audit write atomically. Clients that need the entire Step 2 form saved together should use `/step-2`.
 
 Step 2 accepts at most 200 costs and 100 income records. Inserts are split according to D1's 100-bound-parameter limit and the table's column count: currently at most 12 costs or 16 income records per INSERT. All INSERT chunks, deletions, the case update and audit events stay in **one** transactional `db.batch()` call. A failure in any later chunk rolls back the entire save. Audit events describe the complete submitted collection, rather than individual chunks. See [Step 2 batching verification](testing/step2-batching.md) for evidence and reproduction commands.
+
+## Repeated saves
+
+Case PATCH and the capability, Step 2, legacy cost/income, capacity and proposed-rate save routes compare submitted fields with persisted data. An unchanged save returns the usual `200` aggregate without rewriting the collection or appending another save audit event. If the existing wizard destination step differs, the necessary case step/timestamp update still occurs; a step-only update does not falsely claim a collection changed.
+
+Comparison includes evidence (names, labels, categories, justification, historic utilisation) as well as financial inputs. Decimal strings compare by exact value without rounding; optional empty/null/omitted numeric fields are equivalent, but zero is not absent. Collection transport order is ignored; explicit capability `displayOrder` remains meaningful. Supplied row IDs must match, while omitted optional cost/income/capacity/rate IDs can match by content with duplicate counts preserved. Missing or unknown capability IDs retain their existing new-capability behaviour.
+
+The first explicit empty cost/income save still records its existing audit action, because the wizard uses it to distinguish an intentionally cleared collection from one that has never been filled. Repeated empty saves are then no-ops. Role, schema, capability ownership and read-only checks still run before duplicate-save shortcuts. Explicit calculation and status actions are not deduplicated. See [duplicate-save verification](testing/persistence-deduplication.md), including the concurrency limitations.
 
 ## Snapshot freshness
 
