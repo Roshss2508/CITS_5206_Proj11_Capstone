@@ -19,7 +19,7 @@ All financial values are JSON strings such as `"202.50"`. Demo write requests us
 | GET | `/api/v1/cases/{id}/export.csv` | Any | Export a selected/latest snapshot |
 | GET | `/api/health` | Any | Service health response |
 
-Error responses use `{ "error": string, "issues"?: ZodIssue[] }`. Responses carrying case data use `Cache-Control: no-store`.
+Validation and missing-resource error responses use `{ "error": string, "issues"?: ZodIssue[] }`. Some existing role/workflow rejections are plain-text responses; clients must also handle those. Responses carrying case data use `Cache-Control: no-store`.
 
 ## Step 2 saves
 
@@ -28,6 +28,14 @@ The wizard sends `{ "costs": [...], "income": [...] }` to `PUT /api/v1/cases/{id
 The separate `/costs` and `/income` routes remain available for existing clients. Each route now performs its own replacement, case update and audit write atomically. Clients that need the entire Step 2 form saved together should use `/step-2`.
 
 Step 2 accepts at most 200 costs and 100 income records. Inserts are split according to D1's 100-bound-parameter limit and the table's column count: currently at most 12 costs or 16 income records per INSERT. All INSERT chunks, deletions, the case update and audit events stay in **one** transactional `db.batch()` call. A failure in any later chunk rolls back the entire save. Audit events describe the complete submitted collection, rather than individual chunks. See [Step 2 batching verification](testing/step2-batching.md) for evidence and reproduction commands.
+
+## Capacity, pricing and case-copy safety
+
+Changed capacity and proposed-rate collections are replaced in one D1 transactional batch per save, including the step/timestamp and original audit action. Schema-derived INSERT chunks support all 20 records (currently 11 capacity rows or 10 proposed-rate rows per statement). Failure of any chunk, metadata or audit statement rolls back the complete replacement. Unchanged-save comparison remains in place.
+
+Case duplication uses a single parameter-safe transaction for the new case header, regenerated/mapped collection rows and new audit markers. The returned aggregate contains exactly the committed rows, without copying calculation snapshots or previous audit history. A failed copy leaves no partial new case. Explicit empty cost/income save markers retain their prior meaning.
+
+See [final backend release verification](testing/backend-release-readiness.md) for regression evidence and important hosting, cold-bootstrap, concurrency and security limitations.
 
 ## Repeated saves
 

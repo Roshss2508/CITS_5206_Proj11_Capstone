@@ -142,7 +142,9 @@ npm run build
 npm run test:e2e
 ```
 
-`npm run ci` runs the fast local quality checks. The GitHub `quality` workflow also installs Chromium and runs the Playwright browser suite before a Pull Request can merge. Formula changes must include a Rule ID and a Golden Test.
+`npm run ci` runs the fast local quality checks. The GitHub `quality` workflow also installs Chrome and Edge and runs the Playwright browser suite before a Pull Request can merge. Formula changes must include a Rule ID and a Golden Test.
+
+For the integrated backend checks, reference calculations, large-save/rollback evidence and known release limitations, see [backend release verification](docs/testing/backend-release-readiness.md). Run `npm run test:e2e -- --workers=1` for serial browser regression against local D1; this does not certify hosted quotas or production security.
 
 ## Architecture
 

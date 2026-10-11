@@ -269,10 +269,18 @@ export async function saveCapacity(caseId: string, rows: Array<Omit<CapacityPlan
     if (current.currentStep !== 4) await touchCase(caseId, 4);
     return getCase(caseId);
   }
-  await db.delete(capacityPlans).where(eq(capacityPlans.caseId, caseId));
-  await db.insert(capacityPlans).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId, historicYear1: row.historicYear1 || null, historicYear2: row.historicYear2 || null, historicYear3: row.historicYear3 || null })));
-  await touchCase(caseId, 4);
-  await addAudit(caseId, actor, "CAPACITY_SAVED", `Saved capacity plans for ${rows.length} capabilities.`);
+  const timestamp = now();
+  const statements: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
+    db.delete(capacityPlans).where(eq(capacityPlans.caseId, caseId)),
+  ];
+  for (const chunk of chunkInsertRows(rows, Object.keys(getTableColumns(capacityPlans)).length)) {
+    statements.push(db.insert(capacityPlans).values(chunk.map((row) => ({ ...row, id: row.id || uid(), caseId, historicYear1: row.historicYear1 || null, historicYear2: row.historicYear2 || null, historicYear3: row.historicYear3 || null }))));
+  }
+  statements.push(
+    db.update(costingCases).set({ currentStep: 4, updatedAt: timestamp }).where(eq(costingCases.id, caseId)),
+    db.insert(auditEvents).values({ id: uid(), caseId, actorId: actor.id, action: "CAPACITY_SAVED", details: `Saved capacity plans for ${rows.length} capabilities.`, fromStatus: null, toStatus: null, createdAt: timestamp }),
+  );
+  await db.batch(statements);
   return getCase(caseId);
 }
 
@@ -289,10 +297,18 @@ export async function saveProposedRates(caseId: string, rows: Array<Omit<Propose
     if (current.currentStep !== 5) await touchCase(caseId, 5);
     return getCase(caseId);
   }
-  await db.delete(proposedRates).where(eq(proposedRates.caseId, caseId));
-  await db.insert(proposedRates).values(rows.map((row) => ({ ...row, id: row.id || uid(), caseId, uwaRate: row.uwaRate || null, apfrRate: row.apfrRate || null, commercialRate: row.commercialRate || null })));
-  await touchCase(caseId, 5);
-  await addAudit(caseId, actor, "PROPOSED_RATES_SAVED", `Saved pricing scenarios for ${rows.length} capabilities.`);
+  const timestamp = now();
+  const statements: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
+    db.delete(proposedRates).where(eq(proposedRates.caseId, caseId)),
+  ];
+  for (const chunk of chunkInsertRows(rows, Object.keys(getTableColumns(proposedRates)).length)) {
+    statements.push(db.insert(proposedRates).values(chunk.map((row) => ({ ...row, id: row.id || uid(), caseId, uwaRate: row.uwaRate || null, apfrRate: row.apfrRate || null, commercialRate: row.commercialRate || null }))));
+  }
+  statements.push(
+    db.update(costingCases).set({ currentStep: 5, updatedAt: timestamp }).where(eq(costingCases.id, caseId)),
+    db.insert(auditEvents).values({ id: uid(), caseId, actorId: actor.id, action: "PROPOSED_RATES_SAVED", details: `Saved pricing scenarios for ${rows.length} capabilities.`, fromStatus: null, toStatus: null, createdAt: timestamp }),
+  );
+  await db.batch(statements);
   return getCase(caseId);
 }
 
@@ -351,8 +367,9 @@ export async function duplicateCase(caseId: string, actor: Actor) {
   const sourceIncomeSaved = source.auditEvents.some(
     (event) => event.action === "INCOME_SAVED",
   );
-  const duplicate = await createCase(`${source.costingCase.platformName} — copy`, source.costingCase.pricingPeriod, actor);
-  const targetId = duplicate.costingCase.id;
+  const targetId = uid();
+  const timestamp = now();
+  const platformName = `${source.costingCase.platformName} — copy`;
   const mapped = new Map<string, string>();
   const copiedCapabilities = source.capabilities.map((item, index) => {
     const nextId = uid();
@@ -360,14 +377,40 @@ export async function duplicateCase(caseId: string, actor: Actor) {
     return { ...item, id: nextId, caseId: targetId, displayOrder: index };
   });
   const db = getDb();
-  await db.delete(capabilities).where(eq(capabilities.caseId, targetId));
-  await db.insert(capabilities).values(copiedCapabilities);
-  if (source.costs.length) await db.insert(costLines).values(source.costs.map((item) => ({ ...item, id: uid(), caseId: targetId, capabilityId: item.capabilityId ? mapped.get(item.capabilityId) || null : null })));
-  if (source.income.length) await db.insert(incomeLines).values(source.income.map((item) => ({ ...item, id: uid(), caseId: targetId })));
-  if (source.capacity.length) await db.insert(capacityPlans).values(source.capacity.map((item) => ({ ...item, id: uid(), caseId: targetId, capabilityId: mapped.get(item.capabilityId)! })));
-  if (source.proposedRates.length) await db.insert(proposedRates).values(source.proposedRates.map((item) => ({ ...item, id: uid(), caseId: targetId, capabilityId: mapped.get(item.capabilityId)! })));
-  if (sourceCostsSaved) await addAudit(targetId, actor, "COSTS_SAVED", `Copied ${source.costs.length} operating cost lines from duplicated case.`);
-  if (sourceIncomeSaved) await addAudit(targetId, actor, "INCOME_SAVED", `Copied ${source.income.length} non-variable income lines from duplicated case.`);
-  await addAudit(targetId, actor, "CASE_DUPLICATED", `Duplicated from ${source.costingCase.platformName}; snapshots were intentionally not copied.`);
-  return getCase(targetId);
+  const copiedCase: CostingCase = { id: targetId, platformName, pricingPeriod: source.costingCase.pricingPeriod, status: "DRAFT", formulaVersion: "RIC_FORMULA_V1", ownerId: actor.id, currentStep: 1, createdAt: timestamp, updatedAt: timestamp };
+  const copiedCosts = source.costs.map((item) => ({ ...item, id: uid(), caseId: targetId, capabilityId: item.capabilityId ? mapped.get(item.capabilityId) || null : null }));
+  const copiedIncome = source.income.map((item) => ({ ...item, id: uid(), caseId: targetId }));
+  const copiedCapacity = source.capacity.map((item) => ({ ...item, id: uid(), caseId: targetId, capabilityId: mapped.get(item.capabilityId)! }));
+  const copiedRates = source.proposedRates.map((item) => ({ ...item, id: uid(), caseId: targetId, capabilityId: mapped.get(item.capabilityId)! }));
+  const copiedAudit = (action: string, details: string): AuditEvent => ({ id: uid(), caseId: targetId, actorId: actor.id, action, details, fromStatus: null, toStatus: null, createdAt: timestamp });
+  const copiedEvents = [copiedAudit("CASE_CREATED", `Created ${platformName} costing case.`)];
+  if (sourceCostsSaved) copiedEvents.push(copiedAudit("COSTS_SAVED", `Copied ${source.costs.length} operating cost lines from duplicated case.`));
+  if (sourceIncomeSaved) copiedEvents.push(copiedAudit("INCOME_SAVED", `Copied ${source.income.length} non-variable income lines from duplicated case.`));
+  copiedEvents.push(copiedAudit("CASE_DUPLICATED", `Duplicated from ${source.costingCase.platformName}; snapshots were intentionally not copied.`));
+  // A copy must be complete or absent: even its new case header and audit
+  // markers belong to the same transaction as all parameter-safe inserts.
+  const statements: [BatchItem<"sqlite">, ...BatchItem<"sqlite">[]] = [
+    db.insert(actors).values(actor).onConflictDoNothing(),
+    db.insert(costingCases).values(copiedCase),
+  ];
+  for (const chunk of chunkInsertRows(copiedCapabilities, Object.keys(getTableColumns(capabilities)).length)) {
+    statements.push(db.insert(capabilities).values(chunk));
+  }
+  for (const chunk of chunkInsertRows(copiedCosts, Object.keys(getTableColumns(costLines)).length)) {
+    statements.push(db.insert(costLines).values(chunk));
+  }
+  for (const chunk of chunkInsertRows(copiedIncome, Object.keys(getTableColumns(incomeLines)).length)) {
+    statements.push(db.insert(incomeLines).values(chunk));
+  }
+  for (const chunk of chunkInsertRows(copiedCapacity, Object.keys(getTableColumns(capacityPlans)).length)) {
+    statements.push(db.insert(capacityPlans).values(chunk));
+  }
+  for (const chunk of chunkInsertRows(copiedRates, Object.keys(getTableColumns(proposedRates)).length)) {
+    statements.push(db.insert(proposedRates).values(chunk));
+  }
+  statements.push(db.insert(auditEvents).values(copiedEvents));
+  await db.batch(statements);
+  // These are precisely the rows committed above. Avoid nine redundant reads
+  // so maximum-size copies also fit the warm Free-plan query budget.
+  return { costingCase: copiedCase, capabilities: copiedCapabilities, costs: copiedCosts, income: copiedIncome, capacity: copiedCapacity, proposedRates: copiedRates, benchmarks: [], snapshots: [], snapshotFreshness: "NONE", auditEvents: [...copiedEvents].reverse() } satisfies CostingCaseAggregate;
 }
