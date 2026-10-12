@@ -103,14 +103,3 @@ The following checks were run successfully against commit `9d801c2` on 9 October
 | `npm run test:e2e` | Passed: 84 tests across Chrome and Edge |
 
 The browser suite covered dashboard and business-rule navigation, the Steps 1-5 workflow, validation and empty states, atomic Step 2 persistence, PDF/CSV snapshot consistency, historical snapshot selection, audit-history navigation, capability-reference integrity, restore behaviour, snapshot freshness, recalculation, submission protection, read-only submitted cases, role persistence and autosave reliability.
-
-## Completion Assessment for Issue #46
-
-- All 14 client-approved acceptance criteria have been reviewed against the implementation.
-- Every criterion has an explicit status and supporting evidence.
-- Remaining implementation and test gaps are identified.
-- Client-dependent items are not presented as completed requirements.
-- Follow-up work is identified separately from this verification task and must be linked from Issue #46 when the follow-up issues are created.
-- Findings are consistent with the approved-scope updates prepared under [Issue #45](https://github.com/Roshss2508/CITS_5206_Proj11_Capstone/issues/45). The Issue #45 documentation PR must be merged before the final Issue #46 close-out check.
-
-Issue #46 can be closed after this document is reviewed, the Issue #45 documentation update and this verification are merged, and the significant follow-up gaps are recorded as separate issues. AC-14 must remain pending until explicit final client acceptance is recorded.
