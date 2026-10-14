@@ -1,38 +1,7 @@
-import { inflateSync } from "node:zlib";
 import { expect, test, type APIRequestContext } from "@playwright/test";
+import { extractPdfText } from "../helpers/pdfText";
 
 const EDITOR = { "x-demo-role": "EDITOR" };
-
-/**
- * pdf-lib compresses each content stream with FlateDecode and renders drawn text as either a
- * hex string (`<...>`) or a literal string (`(...)`) before the `Tj`/`TJ` show-text operator.
- * Decompressing and pulling those strings out is enough to assert what text actually ended up
- * in the PDF, without pulling in a PDF-parsing dependency just for this test.
- */
-function extractPdfText(bytes: Buffer): string {
-  const raw = bytes.toString("latin1");
-  let decoded = "";
-  const streamRe = /stream\r?\n([\s\S]*?)\r?\nendstream/g;
-  let streamMatch: RegExpExecArray | null;
-  while ((streamMatch = streamRe.exec(raw))) {
-    try {
-      decoded += inflateSync(Buffer.from(streamMatch[1], "latin1")).toString("latin1");
-    } catch {
-      decoded += streamMatch[1];
-    }
-  }
-
-  const strings: string[] = [];
-  const hexRe = /<([0-9A-Fa-f]+)>\s*Tj/g;
-  let hexMatch: RegExpExecArray | null;
-  while ((hexMatch = hexRe.exec(decoded))) strings.push(Buffer.from(hexMatch[1], "hex").toString("latin1"));
-
-  const literalRe = /\(((?:[^()\\]|\\.)*)\)\s*Tj/g;
-  let literalMatch: RegExpExecArray | null;
-  while ((literalMatch = literalRe.exec(decoded))) strings.push(literalMatch[1].replace(/\\(.)/g, "$1"));
-
-  return strings.join(" ");
-}
 
 async function createCalculatedCase(request: APIRequestContext, justification: string) {
   const created = await request.post("/api/v1/cases", {
